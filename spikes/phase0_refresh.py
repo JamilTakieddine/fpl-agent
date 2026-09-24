@@ -10,7 +10,8 @@ What it does
   1. Reads the refresh token + client id from .secrets/fpl_state.json.
   2. Finds the token endpoint via OIDC discovery and POSTs grant_type=refresh_token.
   3. Saves the new tokens BEFORE using them (a rotated refresh token invalidates the old one).
-  4. Checks the new access token against /api/me/ and reports lifetimes and whether the token rotated.
+  4. Checks the new access token against /api/me/, and reports lifetimes and
+     whether the refresh token rotated.
 
 Read-only against FPL. It never prints token values.
 
@@ -28,6 +29,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -38,16 +40,19 @@ AUTH_FILE = SECRETS / "fpl_auth.json"
 OIDC_KEY_PREFIX = "oidc.user:"
 TIMEOUT_S = 20
 
+Json = dict[str, Any]
 
-def jwt_claims(token: str) -> dict:
+
+def jwt_claims(token: str) -> Json:
     """Decode a JWT payload without verifying it. Only used to read exp/iat, never to trust it."""
     parts = token.split(".")
     if len(parts) != 3:
         return {}
-    return json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    claims: Json = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    return claims
 
 
-def find_oidc_entry(state: dict) -> tuple[dict, str]:
+def find_oidc_entry(state: Json) -> tuple[Json, str]:
     """Return the localStorage item holding the OIDC user, and its key name."""
     for origin in state.get("origins", []):
         if origin.get("origin") != BASE:
@@ -131,12 +136,17 @@ def main() -> int:
     describe_lifetime(new_access, "access token ")
     describe_lifetime(new_refresh, "refresh token")
     print(f"    refresh token rotated: {rotated}")
-    extra = {k: tokens[k] for k in ("refresh_expires_in", "refresh_token_expires_in") if k in tokens}
+    extra = {
+        k: tokens[k] for k in ("refresh_expires_in", "refresh_token_expires_in") if k in tokens
+    }
     if extra:
         print(f"    server-reported refresh lifetime: {extra}")
 
-    me = requests.get(f"{BASE}/api/me/", headers={"x-api-authorization": f"Bearer {new_access}"},
-                      timeout=TIMEOUT_S)
+    me = requests.get(
+        f"{BASE}/api/me/",
+        headers={"x-api-authorization": f"Bearer {new_access}"},
+        timeout=TIMEOUT_S,
+    )
     entry = ((me.json() if me.ok else {}).get("player") or {}).get("entry")
     if entry:
         print(f"\nPASS  /api/me/ with the new token (plain requests, no cookies) -> entry={entry}")

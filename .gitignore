@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 data/cache/
 .DS_Store
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/

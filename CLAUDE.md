@@ -45,7 +45,9 @@ LLMs are only used at the edges (turning injury news text into flags, writing th
 All decisions come from deterministic code that can be tested.
 
 ## Conventions
-- Python 3.12, `venv` + `requirements.txt`. Type hints. Small pure functions for rules so they're unit-testable.
+- Python 3.12, `.venv` + `pyproject.toml` (runtime deps, `[dev]` extra for tooling). ruff (lint + format),
+  mypy `--strict`, pre-commit on every commit (see the parent CLAUDE.md baseline and D6 in `docs/decisions.md`).
+  Small pure functions for rules so they're unit-testable.
 - `pytest` for tests. Every rule above gets a test before the optimizer uses it.
 - Anything that writes to FPL defaults to DRY RUN. A real submission needs an explicit `--live` flag
   (or env `FPL_LIVE=1` in the cloud). Log the exact payload before sending it.

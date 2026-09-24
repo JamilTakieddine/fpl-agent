@@ -8,9 +8,10 @@ Status: Phase 0 (auth and write-access spike).
 ## Setup
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"   # runtime deps + ruff, mypy, pytest, pre-commit
 playwright install chromium
-cp .env.example .env   # fill in your IDs
+pre-commit install        # ruff + mypy + hygiene checks on every commit
+cp .env.example .env      # fill in your IDs
 ```
 
 ## Phase 0

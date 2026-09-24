@@ -34,8 +34,16 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
-from playwright.sync_api import APIRequestContext, Browser, Playwright, sync_playwright
+from playwright.sync_api import (
+    APIRequestContext,
+    Browser,
+    BrowserContext,
+    Playwright,
+    Request,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
 
 BASE = "https://fantasy.premierleague.com"
@@ -47,6 +55,9 @@ AUTH_HEADER_KEYS = ("authorization", "x-api-authorization")
 LOGIN_TIMEOUT_S = 300
 POLL_INTERVAL_S = 3
 
+Json = dict[str, Any]  # a parsed JSON object from the FPL API
+Auth = dict[str, str]  # auth headers
+
 
 class BrowserClosed(Exception):
     """The user closed the browser (or every tab) before we finished."""
@@ -56,15 +67,16 @@ def first_line(e: Exception) -> str:
     return str(e).splitlines()[0] if str(e) else type(e).__name__
 
 
-def api_get(req: APIRequestContext, path: str, auth: dict) -> tuple[int, dict | None]:
+def api_get(req: APIRequestContext, path: str, auth: Auth) -> tuple[int, Json | None]:
     resp = req.get(f"{API}{path}", headers=auth)
     try:
-        return resp.status, resp.json()
+        body: Json = resp.json()
+        return resp.status, body
     except Exception:
         return resp.status, None
 
 
-def logged_in_entry(req: APIRequestContext, auth: dict) -> int | None:
+def logged_in_entry(req: APIRequestContext, auth: Auth) -> int | None:
     """Entry id if /api/me/ shows a logged-in player, else None."""
     status, me = api_get(req, "/me/", auth)
     player = (me or {}).get("player") if status == 200 else None
@@ -73,7 +85,7 @@ def logged_in_entry(req: APIRequestContext, auth: dict) -> int | None:
     return None
 
 
-def try_saved_session(pw: Playwright) -> tuple[APIRequestContext, dict, int] | None:
+def try_saved_session(pw: Playwright) -> tuple[APIRequestContext, Auth, int] | None:
     """Reuse .secrets/ from a previous login without opening a browser.
 
     Uses pw.request (a plain HTTP client that accepts the saved cookies) rather than a
@@ -82,7 +94,7 @@ def try_saved_session(pw: Playwright) -> tuple[APIRequestContext, dict, int] | N
     """
     if not STATE_FILE.exists():
         return None
-    auth = json.loads(AUTH_FILE.read_text()) if AUTH_FILE.exists() else {}
+    auth: Auth = json.loads(AUTH_FILE.read_text()) if AUTH_FILE.exists() else {}
     age_h = (time.time() - STATE_FILE.stat().st_mtime) / 3600
 
     req = pw.request.new_context(storage_state=str(STATE_FILE))
@@ -96,14 +108,14 @@ def try_saved_session(pw: Playwright) -> tuple[APIRequestContext, dict, int] | N
     return None
 
 
-def capture_auth(ctx, captured: dict) -> None:
+def capture_auth(ctx: BrowserContext, captured: Auth) -> None:
     """Record auth headers from any request the FPL site makes to its own API.
 
     Listens on the whole context, not one page, so popups, new tabs and the
     redirect through account.premierleague.com are all covered.
     """
 
-    def on_request(req):
+    def on_request(req: Request) -> None:
         if not req.url.startswith(API):
             return
         try:
@@ -117,7 +129,7 @@ def capture_auth(ctx, captured: dict) -> None:
     ctx.on("request", on_request)
 
 
-def wait_for_login(ctx, captured: dict, closed: dict) -> int | None:
+def wait_for_login(ctx: BrowserContext, captured: Auth, closed: dict[str, bool]) -> int | None:
     """Poll /api/me/ until it shows a logged-in entry. Returns the entry id or None on timeout.
 
     Uses time.sleep instead of page.wait_for_timeout so no single page handle has to
@@ -140,9 +152,9 @@ def wait_for_login(ctx, captured: dict, closed: dict) -> int | None:
     return None
 
 
-def browser_login(pw: Playwright) -> tuple[Browser, APIRequestContext, dict, int] | None:
+def browser_login(pw: Playwright) -> tuple[Browser, APIRequestContext, Auth, int] | None:
     """Open a clean Chromium window, let the user log in, save the session. None on failure."""
-    captured: dict[str, str] = {}
+    captured: Auth = {}
     browser = pw.chromium.launch(headless=False)
     closed = {"flag": False}
     browser.on("disconnected", lambda _: closed.update(flag=True))
@@ -182,7 +194,7 @@ def browser_login(pw: Playwright) -> tuple[Browser, APIRequestContext, dict, int
     return browser, ctx.request, auth, entry_id
 
 
-def summarise_team(team: dict, names: dict[int, str]) -> None:
+def summarise_team(team: Json, names: dict[int, str]) -> None:
     picks = team.get("picks", [])
     print("\n  Lineup (position: player)")
     for p in sorted(picks, key=lambda x: x["position"]):
@@ -194,17 +206,21 @@ def summarise_team(team: dict, names: dict[int, str]) -> None:
 
     t = team.get("transfers", {})
     if t:
-        print(f"\n  Transfers: limit={t.get('limit')} made={t.get('made')} "
-              f"bank={t.get('bank', 0) / 10:.1f} value={t.get('value', 0) / 10:.1f}")
+        print(
+            f"\n  Transfers: limit={t.get('limit')} made={t.get('made')} "
+            f"bank={t.get('bank', 0) / 10:.1f} value={t.get('value', 0) / 10:.1f}"
+        )
     chips = team.get("chips", [])
     if chips:
         print("  Chips:")
         for c in chips:
-            print(f"   {c.get('name'):<9} status={c.get('status_for_entry')} "
-                  f"window=GW{c.get('start_event')}-{c.get('stop_event')}")
+            print(
+                f"   {c.get('name'):<9} status={c.get('status_for_entry')} "
+                f"window=GW{c.get('start_event')}-{c.get('stop_event')}"
+            )
 
 
-def run_checks(req: APIRequestContext, auth: dict, entry_id: int, write: bool) -> int:
+def run_checks(req: APIRequestContext, auth: Auth, entry_id: int, write: bool) -> int:
     """Read /my-team/, and with write=True POST the unchanged lineup back."""
     # Player names for readable output (public endpoint).
     _, boot = api_get(req, "/bootstrap-static/", {})
@@ -252,10 +268,16 @@ def run_checks(req: APIRequestContext, auth: dict, entry_id: int, write: bool) -
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--write", action="store_true",
-                    help="POST the current lineup back unchanged (the real test)")
-    ap.add_argument("--fresh", action="store_true",
-                    help="ignore the saved session and log in again in a browser")
+    ap.add_argument(
+        "--write",
+        action="store_true",
+        help="POST the current lineup back unchanged (the real test)",
+    )
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help="ignore the saved session and log in again in a browser",
+    )
     args = ap.parse_args()
 
     SECRETS.mkdir(exist_ok=True)

@@ -128,6 +128,45 @@ testing them, with an atomic temp-file-plus-rename write and 0600 permissions.
 
 ---
 
+## D6. Production-shaped tooling: pyproject.toml, ruff, mypy --strict, pre-commit
+
+*Phase 0, 2026-09-24*
+
+**Context.** The parent `CLAUDE.md` sets a production-shaped Python baseline for every project in the series
+(`pyproject.toml`, ruff, mypy, pytest, pre-commit). This project's `CLAUDE.md` said `requirements.txt`,
+which was a leftover rather than a deliberate exception. The agent runs unattended, writes to a real
+account, and lives in a public repo, so it is the kind of project the baseline exists for.
+
+**Decision.**
+- **`pyproject.toml` is the single source of truth.** Runtime deps are only what the code imports
+  (`playwright`, `requests`). Tooling goes in a `[dev]` extra so it stays out of the cloud image. `python-dotenv`
+  was dropped until code actually reads `.env` (Phase 1). `packages = []` for now, because there's no package
+  yet and setuptools auto-discovery can fail on folders like `spikes/`.
+- **mypy `strict = true` from the start.** Adding strictness later means fixing a backlog of errors. Turning
+  it on for the Phase 0 spikes surfaced 14 errors, all of them bare `dict`s and missing annotations; they were
+  fixed with `Json` and `Auth` aliases.
+- **ruff runs as the official pinned pre-commit hook**, so anyone who clones the repo gets the same version.
+- **mypy runs as a local hook from `.venv/`.** The official mirrors-mypy hook runs in an isolated environment
+  without playwright and types-requests installed, so it would quietly treat their objects as `Any` and check
+  much less. The cost is that the hook needs `.venv/` to exist, which the README setup creates.
+- **A `no-jwt` pygrep hook** refuses any commit containing a JWT-shaped string (`eyJ...eyJ...`). The repo is
+  public and `.secrets/` holds a live 180-day refresh token. The hook was tested against a fake token and
+  blocks it.
+
+**Alternatives.**
+- *Keep `requirements.txt`.* It works, but it has no place for tool config, no separation of dev and runtime
+  deps, and it breaks the series convention.
+- *uv / Poetry.* Faster installs and lockfiles, but they're another tool to learn and the baseline says venv.
+  Revisit if dependency drift becomes a problem.
+- *gitleaks for secret scanning.* Broader coverage, but it needs a Go binary. The pygrep hook covers the one
+  secret format this project actually handles.
+
+**Consequences.** Every commit is formatted, lint-clean and passes mypy strict. Tests are not run in the hook
+(too slow); run pytest manually / in CI. When `fpl_agent/` is created, switch `[tool.setuptools]` to package
+discovery and add `fpl_agent tests` to the mypy hook's entry.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -153,9 +192,21 @@ testing them, with an atomic temp-file-plus-rename write and 0600 permissions.
   is_captain and is_vice_captain, plus `chip`.
 - `.secrets/` is chmod 700 and its files 600, because it holds a live refresh token.
 
-## Open questions
+## Open questions (with the current recommendation)
 
-- Does anything revoke refresh tokens early (logging out on the website, a password change, logging in on
-  another device)? If so, the agent needs an alert to "log in again" instead of failing silently before a deadline.
-- Secret Manager write-back: the rotated token must be saved before the job continues. How do we handle a
-  failed write? (Phase 4.)
+**Q1. What revokes the refresh token early (logging out on the site, a password change, other devices)?**
+Recommendation: design for revocation whatever the cause, because the job will see the same `invalid_grant`
+error either way. Then do one cheap test to learn which actions trigger it.
+- *Refresh-token canary run*, about 24h before each deadline: refresh, save, and on `invalid_grant` email
+  "log in again: `python spikes/phase0_auth.py --fresh`". Finding out 15 minutes before the deadline is too late to fix.
+- *A re-login path that doesn't need the cloud*: the local login saves the new refresh token to Secret Manager.
+- *One test*: log out on fantasy.premierleague.com, then run `phase0_refresh.py`. If it fails, logging out
+  revokes the token, so the email should say "don't log out on the website". Cost: one browser re-login.
+
+**Q2. What if saving the rotated refresh token to Secret Manager fails?**
+Recommendation: save it before doing anything else and retry with backoff, but **don't let a failed save
+block the gameweek submission.** The new access token in memory is valid for 1 hour, which is enough to submit.
+Only *next* week's run depends on the saved token. So: retry the save during the whole run, submit the lineup
+regardless, and if the save still hasn't succeeded, send an alert email saying re-login is needed before next
+deadline. Never print or log the token as a "backup". Also, since only one refresh may happen at a time, the canary
+and the deadline run must never overlap. Use a single Cloud Run job with no parallelism, and schedules far apart.
