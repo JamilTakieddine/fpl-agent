@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpl-agent"
+version = "0.0.1"
+description = "An autonomous Fantasy Premier League manager."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "playwright>=1.45",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "types-requests",
+]
+
+[tool.setuptools]
+# No importable package yet. Switch to package discovery when fpl_agent/ is created (Phase 1).
+packages = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: pycodestyle + pyflakes basics. I: import order. UP: modern syntax. B: likely bugs.
+# SIM: simplifications.
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
