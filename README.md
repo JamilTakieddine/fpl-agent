@@ -3,7 +3,8 @@
 An autonomous Fantasy Premier League manager. It runs before each gameweek deadline, simulates the week,
 and sets the lineup, captain, bench, transfers and chips to maximize head-to-head win probability.
 
-Status: Phase 0 (auth and write-access spike).
+Status: Phase 0 done: login, reading the team, saving a lineup, and headless token refresh all work.
+Next: Phase 1, the data layer (API client, fixture calendar, opponent model inputs).
 
 ## Setup
 ```bash

@@ -167,6 +167,28 @@ discovery and add `fpl_agent tests` to the mypy hook's entry.
 
 ---
 
+## D7. Hosting: public GitHub repo, pushed over HTTPS with `gh` credentials
+
+*Phase 0, 2026-09-25*
+
+**Context.** The project is meant to be reusable by other FPL players (goal 3), and the repo needed a remote.
+
+**Decision.** A public repo at `github.com/JamilTakieddine/fpl-agent`, created with `gh repo create`. Git uses
+HTTPS with the `gh` login, which is stored in the macOS keychain (`gh auth setup-git`).
+
+**Alternatives.**
+- *SSH keys.* Also standard, but it means generating keys and uploading the public key, and `gh` is needed
+  anyway for PRs and CI.
+- *A private repo until the project is polished.* Safer against leaks, but the leak protection comes from
+  `.gitignore`, the pre-commit `no-jwt` hook, and scanning history before the first push, not from keeping the
+  repo private. Going public from the start keeps those habits honest.
+
+**Consequences.** Everything committed is public right away. Before any push, check `git status` and make sure
+the hooks passed. If a secret ever lands in a commit, rotate it first (for FPL, log in again to replace the
+refresh token), then rewrite the history. Deleting the file in a later commit isn't enough.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
