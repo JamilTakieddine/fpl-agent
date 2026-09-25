@@ -12,6 +12,7 @@ from fpl_agent.auth import AuthError, FileTokenStore, TokenManager
 from fpl_agent.config import ConfigError, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
+from fpl_agent.data.opponent import load_opponent
 
 
 def main() -> int:
@@ -46,6 +47,21 @@ def main() -> int:
             if gw.blank_teams:
                 tags.append("BLANK: " + ",".join(sorted(teams[t] for t in gw.blank_teams)))
             print(f"  GW{gw.id:<2} {len(gw.fixtures):>2} fixtures  {' | '.join(tags) or 'normal'}")
+
+        if settings.h2h_league_id:
+            snap = load_opponent(client, settings.h2h_league_id, settings.entry_id, gw_id)
+            if snap is None:
+                print(f"H2H GW{gw_id}: vs league AVERAGE")
+            else:
+                names = {p.id: p.web_name for p in boot.elements}
+                caps = ", ".join(
+                    f"GW{c.event} {names.get(c.captain, c.captain)}"
+                    + (" (TC)" if c.chip == "3xc" else "")
+                    for c in snap.captain_history
+                )
+                print(f"H2H GW{gw_id}: vs entry {snap.opponent.entry_id}")
+                print(f"  recent captains: {caps or 'none yet'}")
+                print(f"  chips left: {', '.join(sorted(snap.chips_remaining)) or 'none'}")
 
     try:
         team = client.my_team(settings.entry_id)

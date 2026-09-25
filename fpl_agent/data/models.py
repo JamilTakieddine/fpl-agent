@@ -68,6 +68,14 @@ class Player(FplModel):
     minutes: int
 
 
+class ChipDefinition(FplModel):
+    """A chip and the gameweek window it's valid in. Two sets exist: GW1-19 and GW20-38 (rule 3)."""
+
+    name: str  # "wildcard", "freehit", "bboost", "3xc"
+    start_event: int
+    stop_event: int
+
+
 class GameConfig(FplModel):
     # Each value is either a flat number or a per-position table, e.g.
     # goals_scored: {"GKP": 10, "DEF": 6, "MID": 5, "FWD": 4}. Read, never hardcode (rule 8).
@@ -79,6 +87,7 @@ class Bootstrap(FplModel):
     teams: list[Team]
     elements: list[Player]
     element_types: list[ElementType]
+    chips: list[ChipDefinition]
     game_config: GameConfig
 
     def next_event(self) -> Event | None:
@@ -114,13 +123,20 @@ class Fixture(FplModel):
 # --- my-team (authenticated) ----------------------------------------------------------------
 
 
-class Pick(FplModel):
+class PublicPick(FplModel):
+    """A pick as anyone can see it for a finished gameweek (no prices)."""
+
     element: int
     position: int  # 1-11 starting XI, 12-15 bench in auto-sub order
     multiplier: int
     is_captain: bool
     is_vice_captain: bool
     element_type: int
+
+
+class Pick(PublicPick):
+    """A pick from my own /my-team/, which adds prices."""
+
     selling_price: int  # what we'd actually get: use this, not now_cost (rule 5)
     purchase_price: int
 
@@ -146,3 +162,55 @@ class MyTeam(FplModel):
     picks: list[Pick]
     chips: list[Chip]
     transfers: Transfers
+
+
+# --- H2H league and other managers (public) -------------------------------------------------
+
+
+class H2HMatch(FplModel):
+    id: int
+    event: int
+    entry_1_entry: int | None  # None on a bye
+    entry_1_name: str
+    entry_1_player_name: str | None
+    entry_1_points: int
+    entry_2_entry: int | None
+    entry_2_name: str
+    entry_2_player_name: str | None
+    entry_2_points: int
+    is_bye: bool  # odd-sized league: the entry plays the league AVERAGE score that week
+    winner: int | None
+
+
+class H2HMatchesPage(FplModel):
+    has_next: bool
+    page: int
+    results: list[H2HMatch]
+
+
+class ChipPlay(FplModel):
+    name: str
+    event: int
+
+
+class EventHistory(FplModel):
+    event: int
+    points: int
+    total_points: int
+    event_transfers: int
+    event_transfers_cost: int
+    points_on_bench: int
+    bank: int
+    value: int
+
+
+class EntryHistory(FplModel):
+    current: list[EventHistory]
+    chips: list[ChipPlay]
+
+
+class EntryPicks(FplModel):
+    """Another manager's picks for a FINISHED gameweek. The upcoming one is hidden (404)."""
+
+    picks: list[PublicPick]
+    active_chip: str | None
