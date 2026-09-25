@@ -254,6 +254,40 @@ match-result prices only, or FPL strength ratings) when a market is too thin. Ma
 
 ---
 
+## D10. Fixture calendar: per-team counts, recomputed every run, postponed matches kept
+
+*Phase 1 step 2, 2026-09-25*
+
+**Context.** Rule 7 says to track double and blank gameweeks for chip timing. Real data in late September
+has none yet (all 38 gameweeks have 10 fixtures). They appear mid-season, when cup ties or TV changes
+postpone a match (`event: null`) and it gets rescheduled into a gameweek where that team already plays. The
+GW6 deadline is **90 minutes** before the first kickoff, not the usual 60.
+
+**Decisions.**
+- **Counts are per team** (`Gameweek.fixture_count`, including 0 for teams that don't play). The
+  gameweek-level `is_double` / `is_blank` flags are derived from them. A gameweek can be both at once.
+- **Postponed fixtures are kept in `Calendar.unscheduled`**, not dropped. They're the early warning of a future
+  double gameweek.
+- **Recompute from `/fixtures/` every run.** Never keep the calendar between weeks, because FPL moves fixtures.
+- **`next_deadline()` uses `deadline_time` and a timezone-aware clock**, not FPL's `is_next` flag, and it rejects
+  naive datetimes. The live check prints both as a cross-check.
+- **Plain frozen dataclasses, not pydantic.** Pydantic is for checking outside data on arrival. The calendar is
+  computed from models that have already been checked, so checking again would only cost time.
+
+**Alternatives.**
+- *A single `is_dgw` flag per gameweek.* It can't answer "how many of *my* players double?", which is what Bench
+  Boost and Triple Captain value depends on.
+- *Deadline = first kickoff minus 60 minutes.* It's already wrong for GW6 (90 minutes). The rule forbids it.
+- *Trust `is_next`.* It flips on FPL's schedule, not ours, which could briefly point at a deadline that has
+  already passed.
+
+**Consequences.**
+- Tests for doubles and blanks use small made-up seasons (the real data has none), plus one test on the
+  recorded GW1–8.
+- The Phase 5 planner combines `fixture_count` with the squad, and uses `window(start, 6)` for its horizon.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -289,6 +323,12 @@ error either way. Then do one cheap test to learn which actions trigger it.
 - *A re-login path that doesn't need the cloud*: the local login saves the new refresh token to Secret Manager.
 - *One test*: log out on fantasy.premierleague.com, then run `phase0_refresh.py`. If it fails, logging out
   revokes the token, so the email should say "don't log out on the website". Cost: one browser re-login.
+- *Reuse detection (not yet verified)*: OAuth security guidance recommends that servers which rotate refresh
+  tokens treat an **old** refresh token being sent again as theft, and revoke that token and every token issued
+  after it. We don't know whether FPL's server does this. Planned test (needs the user present, since the worst
+  case is a browser re-login): force one refresh, send the old token, record the response, then check whether
+  the new token still works. Until then, assume it does: `phase0_refresh.py` refuses to run (D8), and only
+  one process may refresh at a time (D5).
 
 **Q2. What if saving the rotated refresh token to Secret Manager fails?**
 Recommendation: save it before doing anything else and retry with backoff, but **don't let a failed save

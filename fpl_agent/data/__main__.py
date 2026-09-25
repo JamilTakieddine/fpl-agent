@@ -6,9 +6,11 @@ Read-only. Refreshes the access token if needed (and saves the rotated refresh t
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime
 
 from fpl_agent.auth import AuthError, FileTokenStore, TokenManager
 from fpl_agent.config import ConfigError, load_settings
+from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
 
 
@@ -27,10 +29,23 @@ def main() -> int:
     nxt = boot.next_event()
     print(f"bootstrap: {len(boot.elements)} players, {len(boot.teams)} teams")
     if nxt:
-        print(f"next deadline: {nxt.name} at {nxt.deadline_time.isoformat()}")
+        print(f"FPL is_next flag: {nxt.name}, deadline {nxt.deadline_time.isoformat()}")
     fixtures = client.fixtures()
-    unscheduled = sum(1 for f in fixtures if f.event is None)
-    print(f"fixtures: {len(fixtures)} ({unscheduled} unscheduled)")
+    cal = build_calendar(boot, fixtures)
+    print(f"fixtures: {len(fixtures)} ({len(cal.unscheduled)} unscheduled / postponed)")
+    upcoming = next_deadline(boot, datetime.now(UTC))
+    if upcoming:
+        gw_id, deadline = upcoming
+        hours = (deadline - datetime.now(UTC)).total_seconds() / 3600
+        print(f"next deadline (by clock): GW{gw_id} in {hours:.1f}h")
+        teams = {t.id: t.short_name for t in boot.teams}
+        for gw in cal.window(gw_id, 6):
+            tags = []
+            if gw.double_teams:
+                tags.append("DOUBLE: " + ",".join(sorted(teams[t] for t in gw.double_teams)))
+            if gw.blank_teams:
+                tags.append("BLANK: " + ",".join(sorted(teams[t] for t in gw.blank_teams)))
+            print(f"  GW{gw.id:<2} {len(gw.fixtures):>2} fixtures  {' | '.join(tags) or 'normal'}")
 
     try:
         team = client.my_team(settings.entry_id)
