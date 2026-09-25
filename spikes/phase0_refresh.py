@@ -83,6 +83,12 @@ def describe_lifetime(token: str, label: str) -> None:
 
 
 def main() -> int:
+    if (SECRETS / "fpl_tokens.json").exists():
+        # fpl_agent.auth now owns the tokens and rotates them there, so the refresh token in
+        # fpl_state.json is stale. Replaying a rotated token can get the whole session revoked.
+        print("Superseded: fpl_agent/auth.py manages tokens now (.secrets/fpl_tokens.json).")
+        print("Use: python -m fpl_agent.data")
+        return 1
     if not STATE_FILE.exists():
         print(f"No {STATE_FILE}. Run spikes/phase0_auth.py first.")
         return 1

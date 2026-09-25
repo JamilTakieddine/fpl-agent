@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "playwright>=1.45",
+    "pydantic>=2.9",
+    "python-dotenv>=1.0",
     "requests>=2.32",
 ]
 
@@ -22,9 +24,8 @@ dev = [
     "types-requests",
 ]
 
-[tool.setuptools]
-# No importable package yet. Switch to package discovery when fpl_agent/ is created (Phase 1).
-packages = []
+[tool.setuptools.packages.find]
+include = ["fpl_agent*"]
 
 [tool.ruff]
 line-length = 100
@@ -38,6 +39,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

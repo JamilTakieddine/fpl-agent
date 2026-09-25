@@ -24,7 +24,7 @@ repos:
       # Uses the project venv so mypy sees the real installed deps (playwright, types-requests).
       - id: mypy
         name: mypy
-        entry: .venv/bin/mypy spikes
+        entry: .venv/bin/mypy fpl_agent tests spikes scripts
         language: system
         types: [python]
         pass_filenames: false
