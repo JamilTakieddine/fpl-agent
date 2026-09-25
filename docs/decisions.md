@@ -288,6 +288,46 @@ GW6 deadline is **90 minutes** before the first kickoff, not the usual 60.
 
 ---
 
+## D11. Opponent inputs: public endpoints, 5 gameweeks of captaincy, AVERAGE detected by null entry
+
+*Phase 1 step 3, 2026-09-25*
+
+**Context.** The H2H objective needs a model of this week's opponent, but their current picks are hidden until
+the deadline (the upcoming gameweek's picks endpoint returns **404**). Everything needed is public: the H2H
+fixtures, entry history (chips played), and picks for finished gameweeks.
+
+**Decisions.**
+- **`fpl_agent/data/opponent.py` returns an `OpponentSnapshot`**: who they are, their last finished squad,
+  captain and vice-captain for the last **5** finished gameweeks (with any chip played), and **chips left for
+  the target gameweek's half**.
+- **Playing the league average is detected by the other side's entry ID being null**, not by `is_bye`. The
+  real data had a match against `"AVERAGE"` with `is_bye: false`.
+- **`chips_remaining` works per window.** A chip counts as used only if it was played inside the same
+  GW1–19 / GW20–38 window. First-half chips simply don't exist in the second half (forfeited at GW19, rule 3).
+- **`entry_picks` returns `None` on 404** ("not visible yet" is expected, not an error). Gameweeks with no picks
+  (a manager who joined late) are skipped. H2H matches follow pagination, capped at 20 pages.
+- **Logic lives in pure functions** (`find_opponent`, `chips_remaining`, `captain_history`). `load_opponent` is
+  the only one that makes network calls: about 8 per run.
+- **Test data is anonymized.** Other managers' names and entry IDs, your entry ID, and the league ID are
+  replaced with made-up ones by `scripts/record_fixtures.py`, because the repo is public.
+
+**Alternatives.**
+- *Full-season captaincy history.* Up to 37 requests per run for little gain, since recent choices predict
+  the next one better.
+- *Scraping the opponent's team on the FPL website near the deadline.* It's hidden there too until the
+  deadline passes.
+- *Trusting `is_bye`.* The real data showed it's wrong for the league-average case.
+- *Putting the captain probability spread here.* That's modeling, which belongs to Phase 2. Phase 1 only
+  provides the history.
+
+**Consequences.**
+- Phase 2 builds the captain distribution from `captain_history` plus the players' expected points.
+- Phase 3 treats a `None` snapshot as "beat the league average".
+- Finished-gameweek picks never change, so a disk cache could later make repeat runs free. It isn't worth it
+  at 8 requests per run.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -305,6 +345,16 @@ GW6 deadline is **90 minutes** before the first kickoff, not the usual 60.
   new refresh token whose `exp` is 180 days from *that* refresh. Since the agent refreshes at least weekly,
   the session never expires unless the server revokes it (for example after a password change) or a rotated
   token gets lost.
+- **Reuse of a replaced refresh token revokes the whole login, after a grace period**
+  (`spikes/phase1_reuse_detection.py`, 2026-09-25):
+  - Old token replayed about 2 seconds after the refresh: **accepted** (200). That's the grace period.
+  - Old token replayed **180 seconds** after the refresh: `400 invalid_grant: Refresh token does not exist`,
+    **and the current refresh token was revoked too**. Recovering took one browser re-login.
+  - So the grace period is between about 2 seconds and 3 minutes. Beyond it, a stale refresh token kills the
+    session.
+  - **Access tokens survive the revocation until they expire** (still worked with 57 minutes left). FPL's API
+    checks the token itself rather than asking the login server. So a run that has already refreshed can
+    always finish submitting that week's lineup.
 - Read-only access is confirmed: `/api/me/` and `/api/my-team/{entry}/` return picks with `selling_price`,
   the transfers info and chip status.
 - **Write access is confirmed.** `POST /api/my-team/{entry}/` with the bearer header, `Origin` and `Referer`
@@ -323,17 +373,23 @@ error either way. Then do one cheap test to learn which actions trigger it.
 - *A re-login path that doesn't need the cloud*: the local login saves the new refresh token to Secret Manager.
 - *One test*: log out on fantasy.premierleague.com, then run `phase0_refresh.py`. If it fails, logging out
   revokes the token, so the email should say "don't log out on the website". Cost: one browser re-login.
-- *Reuse detection (not yet verified)*: OAuth security guidance recommends that servers which rotate refresh
-  tokens treat an **old** refresh token being sent again as theft, and revoke that token and every token issued
-  after it. We don't know whether FPL's server does this. Planned test (needs the user present, since the worst
-  case is a browser re-login): force one refresh, send the old token, record the response, then check whether
-  the new token still works. Until then, assume it does: `phase0_refresh.py` refuses to run (D8), and only
-  one process may refresh at a time (D5).
+- *Reuse detection: **answered, yes*** (see Findings). Sending a replaced refresh token after the grace period
+  revokes the whole login. The design has to guarantee that **exactly one current copy** of the refresh token
+  exists and that nothing ever sends an older one:
+  - Only one process refreshes at a time: a lock, or a single Cloud Run job with no parallel runs (D5).
+  - Never restore a token backup. After each successful save to Secret Manager, **disable the older secret
+    versions** so nothing can read a stale one.
+  - `phase0_refresh.py` stays disabled (D8), and `phase1_reuse_detection.py` carries a warning.
+- Still open: whether logging out on the website, changing the password, or logging in elsewhere revokes the
+  agent's session. The day-before check run catches all of these anyway.
 
 **Q2. What if saving the rotated refresh token to Secret Manager fails?**
 Recommendation: save it before doing anything else and retry with backoff, but **don't let a failed save
 block the gameweek submission.** The new access token in memory is valid for 1 hour, which is enough to submit.
 Only *next* week's run depends on the saved token. So: retry the save during the whole run, submit the lineup
 regardless, and if the save still hasn't succeeded, send an alert email saying re-login is needed before next
-deadline. Never print or log the token as a "backup". Also, since only one refresh may happen at a time, the canary
+deadline. Reuse detection (see Findings) makes this stricter: the older token still in Secret Manager is now
+**poison**, because using it would revoke the session. So a failed save must also mark the secret as needing a
+re-login (for example a `needs_relogin` flag), so the next run stops and sends an alert instead of refreshing with it.
+(Verified: the in-memory access token keeps working after revocation, so this week's submission is safe.) Never print or log the token as a "backup". Also, since only one refresh may happen at a time, the canary
 and the deadline run must never overlap. Use a single Cloud Run job with no parallelism, and schedules far apart.

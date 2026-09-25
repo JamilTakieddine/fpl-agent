@@ -2024,6 +2024,120 @@
    "element_count": 79
   }
  ],
+ "chips": [
+  {
+   "id": 1,
+   "name": "wildcard",
+   "number": 1,
+   "start_event": 2,
+   "stop_event": 19,
+   "chip_type": "transfer",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 2,
+   "name": "wildcard",
+   "number": 1,
+   "start_event": 20,
+   "stop_event": 38,
+   "chip_type": "transfer",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 3,
+   "name": "freehit",
+   "number": 1,
+   "start_event": 2,
+   "stop_event": 19,
+   "chip_type": "transfer",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 4,
+   "name": "bboost",
+   "number": 1,
+   "start_event": 1,
+   "stop_event": 19,
+   "chip_type": "team",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 5,
+   "name": "3xc",
+   "number": 1,
+   "start_event": 1,
+   "stop_event": 19,
+   "chip_type": "team",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 6,
+   "name": "freehit",
+   "number": 1,
+   "start_event": 20,
+   "stop_event": 38,
+   "chip_type": "transfer",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 7,
+   "name": "bboost",
+   "number": 1,
+   "start_event": 20,
+   "stop_event": 38,
+   "chip_type": "team",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  },
+  {
+   "id": 8,
+   "name": "3xc",
+   "number": 1,
+   "start_event": 20,
+   "stop_event": 38,
+   "chip_type": "team",
+   "overrides": {
+    "rules": {},
+    "scoring": {},
+    "element_types": [],
+    "pick_multiplier": null
+   }
+  }
+ ],
  "elements": [
   {
    "can_transact": true,
