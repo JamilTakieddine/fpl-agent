@@ -189,6 +189,71 @@ refresh token), then rewrite the history. Deleting the file in a later commit is
 
 ---
 
+## D8. Phase 1 data layer: pydantic at the boundary, swappable token store, protocols for HTTP
+
+*Phase 1 step 1, 2026-09-25*
+
+**Context.** Everything after Phase 1 should be pure functions over trusted inputs. The FPL API is
+undocumented and changes between seasons, is flaky around deadlines, and needs a token that rotates.
+
+**Decisions.**
+- **Every response is validated with pydantic on arrival** (`fpl_agent/data/models.py`). Unknown fields are
+  ignored (`extra="ignore"`) and models are frozen.
+- **Money stays as integer tenths** (`now_cost: 60` = 6.0m), exactly as the API sends it. No floats.
+- **`TokenStore` interface plus `TokenManager`** (`fpl_agent/auth.py`). The token is refreshed when it has
+  less than 5 minutes left, and the new tokens are **saved before they're returned**. The HTTP session and
+  the clock are passed in, so tests can fake expiry and revocation. A revoked token raises `AuthError`
+  telling you to log in again.
+- **The package owns its tokens in `.secrets/fpl_tokens.json`**, imported from the Phase 0 login state. It
+  re-imports whenever the login state is newer, so `phase0_auth.py --fresh` is the re-login path. The old
+  `phase0_refresh.py` now refuses to run, because its copy of the refresh token goes stale after the first
+  rotation and replaying a rotated token can revoke the whole session.
+- **GET-only retries** in the session (urllib3 `Retry`: 3 attempts, 1/2/4s backoff, on 429 and 5xx, honoring
+  `Retry-After`). `bootstrap-static` is cached per client. There's a project `User-Agent`.
+- **Code depends on small `Protocol`s** (`HttpSession`, `HttpResponse`, `AuthProvider`), not on
+  `requests.Session`.
+- **Tests use trimmed recordings of real responses** (`tests/fixtures/`, made by `scripts/record_fixtures.py`),
+  never the live API. `python -m fpl_agent.data` is a separate read-only live check.
+
+**Alternatives.**
+- *Plain dataclasses or TypedDicts.* No runtime checks, so a renamed field would surface as a `KeyError`
+  deep in the optimizer, or as a silently wrong value.
+- *`extra="forbid"`.* It would crash whenever FPL adds a field, which is likely the week a new feature launches.
+- *Float prices.* `0.1 + 0.2 != 0.3`, and the sell-on rule rounds down, so small float errors would cause
+  off-by-0.1m mistakes.
+- *A hand-written retry loop, or retrying POSTs too.* More code, and an auto-retried lineup save could be
+  applied twice.
+- *Mocking `requests` with `responses` or `requests-mock`.* Another dependency, and the tests would be tied
+  to `requests` internals. With protocols, a 20-line fake is enough.
+- *Committing the full `bootstrap-static`.* It's 1.9 MB, over the 500 KB large-file hook, and mostly unused
+  fields. The trimmed version keeps the real shape at 157 KB.
+
+**Consequences.**
+- New endpoints follow the same pattern: add a model, a client method, a trimmed test fixture, and tests.
+- Re-record the fixtures at the start of each season to catch schema changes early.
+- The Phase 4 Secret Manager store only needs to implement `load` and `save`.
+
+## D9. Odds source: Kalshi
+
+*Phase 1, 2026-09-25 (your choice; to be built in step 5)*
+
+**Context.** Phase 2 simulates scorelines from each team's expected goals. FPL provides no odds.
+
+**Decision.** Use Kalshi's public market data API (`api.elections.kalshi.com/trade-api/v2`). A probe found
+Premier League series for match result (`KXEPLGAME`), **correct score** (`KXEPLSCORE`), first half, first team
+to score, and team points. Correct-score prices are close to exactly what a scoreline model needs: each team's
+expected goals can be fitted straight from them.
+
+**Alternatives.** Bookmaker odds aggregators (e.g. The Odds API): wide coverage, but a limited free tier and
+margins that need removing. Scraping bookmakers: fragile and against their terms. FPL's own `strength_*`
+ratings: free, but coarse and rarely updated.
+
+**Consequences / open.** How much trading these markets see is unknown. Thinly traded prices give noisy
+probabilities, so step 5 must measure spreads and volume per match and define a fallback (for example,
+match-result prices only, or FPL strength ratings) when a market is too thin. Market data needs no login.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

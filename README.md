@@ -3,8 +3,8 @@
 An autonomous Fantasy Premier League manager. It runs before each gameweek deadline, simulates the week,
 and sets the lineup, captain, bench, transfers and chips to maximize head-to-head win probability.
 
-Status: Phase 0 done: login, reading the team, saving a lineup, and headless token refresh all work.
-Next: Phase 1, the data layer (API client, fixture calendar, opponent model inputs).
+Status: Phase 1 in progress. Step 1 is done: typed FPL API client with auth and token refresh.
+Next: the fixture calendar (double and blank gameweeks).
 
 ## Setup
 ```bash
@@ -13,6 +13,13 @@ pip install -e ".[dev]"   # runtime deps + ruff, mypy, pytest, pre-commit
 playwright install chromium
 pre-commit install        # ruff + mypy + hygiene checks on every commit
 cp .env.example .env      # fill in your IDs
+```
+
+## Usage
+```bash
+python -m fpl_agent.data          # live read-only check: deadline, fixtures, your team
+pytest                            # tests (no network; uses tests/fixtures/)
+python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
 ```
 
 ## Phase 0
