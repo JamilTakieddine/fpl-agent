@@ -15,6 +15,7 @@ from fpl_agent.data.client import FplClient, make_session
 from fpl_agent.data.kalshi import KalshiClient
 from fpl_agent.data.lineups import load_predictions
 from fpl_agent.data.odds import load_odds
+from fpl_agent.data.odds_store import FileOddsStore, record_odds
 from fpl_agent.data.opponent import load_opponent
 from fpl_agent.data.snapshots import FileSnapshotStore, record_snapshot
 
@@ -60,7 +61,12 @@ def main() -> int:
 
         gw_fixtures = list(cal.get(gw_id).fixtures)
         odds, skipped = load_odds(KalshiClient(http), gw_fixtures, boot)
-        print(f"Kalshi odds GW{gw_id}: {len(odds)}/{len(gw_fixtures)} fixtures priced")
+        odds_store = FileOddsStore(settings.odds_dir)
+        updated = record_odds(odds_store, gw_id, odds, gw_fixtures, datetime.now(UTC))
+        print(
+            f"Kalshi odds GW{gw_id}: {len(odds)}/{len(gw_fixtures)} fixtures priced "
+            f"({updated} saved; {len(odds_store.load(gw_id))} fixtures have a saved price)"
+        )
         for f in gw_fixtures:
             o = odds.get(f.id)
             if o:
