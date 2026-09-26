@@ -596,6 +596,90 @@ about two weeks early, but a fixture's market can be missing or too thin at run 
 
 ---
 
+## D18. Minutes simulation: availability once per gameweek, position-level starter minutes
+
+*Phase 2 step 2, 2026-09-27*
+
+**Context.** Minutes decide appearance points (1 below 60, 2 at 60+), clean sheet eligibility (60+) and the
+chance to reach the DEFCON threshold. When a player is on the pitch decides which goals he can score,
+assist or concede. Real GW1–5 data (single-match gameweeks):
+
+| Starters | Full 90 | Subbed 60–89 | Off before 60 |
+|---|---|---|---|
+| GK (n=100) | 100% | 0% | 0% |
+| DEF (n=429) | 76% | 19% | 5% |
+| MID (n=469) | 42% | 50% | 8% |
+| FWD (n=102) | 52% | 41% | 7% |
+
+Substitutes (n=438): median 16 minutes (49% up to 15, 40% 16–30, 10% 31–59). Starters who get subbed go
+around minute 72 (quartiles 63–80).
+
+**Decisions** (`fpl_agent/model/minutes.py`):
+- **Availability is drawn once per player per gameweek.** An injured player misses both matches of a double.
+- **Role (start / cameo / unused) is drawn per match**, from the Phase 1 probabilities divided by
+  P(available).
+- **A starter's minutes are resampled from real starter appearances for his position** (the user chose
+  position-level over player-specific). A cameo's minutes are resampled from real substitute appearances,
+  and he comes on at 90 minus those minutes.
+- **The distributions are rebuilt each run from the live data the lineup model already fetches.** Double
+  gameweek appearances are excluded, because FPL doesn't say which match a start belongs to. With fewer than
+  30 observations it falls back to pooled outfield data, then to a coarse default approximating the table.
+- **Output per player per match:** `minutes`, `on_from` (the minute he came on) and `started`, as arrays of
+  shape (player-matches × simulations). Seeded, and drawn in player then fixture order. 10,000 simulations
+  of all 667 players takes 0.26s.
+- **Players are drawn independently**, so a simulated team won't always field exactly 11.
+
+**Alternatives.**
+- *Player-specific starter minutes, shrunk toward his position.* Better for regularly subbed players, but
+  it rests on only about 5 starts each so far. Revisit in Phase 2 validation.
+- *Every starter plays 90.* Wrong for half of all midfielders.
+- *Drawing availability per match.* Understates the risk that a double-gameweek player blanks entirely.
+- *Forcing 11 per team with a team-sheet model.* Heavier; see Q4.
+
+**Finding: the Phase 1 start probabilities add up to only ~9.2 starters per team, not 11** (GK 0.85, DEF
+3.55, MID 3.95, FWD 0.83, against actual averages of 1.00 / 4.29 / 4.69 / 1.02). About 1.0 comes from the
+surprise non-start factor, which is taken from starters and given to nobody. About 0.5 comes from
+unavailable players, whose starts nobody inherits. The rest comes from shrinkage. Regulars' individual
+probabilities are right; **replacements are underrated**, such as a backup goalkeeper or the center-back
+who comes in for an injured teammate. See Q4.
+
+---
+
+## D19. Top up each team's expected starters per position to what it actually fielded (answers Q4)
+
+*Phase 2 step 2 follow-up, 2026-09-27*
+
+**Context.** D18 found that the Phase 1 start probabilities added up to about 9.2 starters per team instead
+of 11. Surprise non-starts and absences removed starts that nobody inherited, so replacements such as backup
+goalkeepers were underrated.
+
+**Decision** (`top_up_starters` in `fpl_agent/data/lineups.py`, run at the end of `predict_all`):
+- **Target** per team and position = the starters that team actually fielded per match over the window. This
+  keeps each team's own formation.
+- **The shortfall** goes to the team's players at that position in proportion to **headroom** (P(available) −
+  P(start)) × **involvement** ((starts + sub appearances + 1) / (matches + 1)). It's capped at P(available);
+  whatever a capped player can't take is re-shared among the others.
+- **A player who now starts more comes off the bench less**, so start + cameo never exceeds availability.
+- **Surpluses are left alone.** The top-up only restores starts nobody inherited; it never removes any.
+- **`LineupPrediction.topped_up`** records how much each player received.
+
+**Result on real GW6 data:** expected starters per team are GK **1.00**, DEF **4.28**, MID **4.67**,
+FWD **1.02** (total 10.97), against actual averages of 1.00 / 4.29 / 4.69 / 1.02.
+
+**Known interactions.**
+- A regular with headroom also receives a small share. Raya went from 0.90 to 0.92, making his effective
+  surprise non-start about 7.7%. For goalkeepers that's probably realistic, since the 10% was pooled across
+  positions. Measure the rate per position (maintenance) rather than special-casing it.
+- Backups with no minutes at all split their share evenly, because the data can't tell a #2 from a #3.
+  Team news could.
+
+**Alternatives.**
+- *Drop the surprise factor.* It ignores measured risk and still misses the replacements.
+- *A full team-sheet model that forces exactly 11 in every simulation.* It also captures which player replaces
+  which, but it's heavier. It could come later if bench and auto-sub decisions need that correlation.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -674,3 +758,14 @@ time, D12):
 
 If coverage is near complete, a crude fallback is fine. If it isn't, add The Odds API (bookmaker
 consensus, including totals) as a second source. Its terms and quotas haven't been checked yet.
+
+**Q4. How should the starter shortfall be fixed (D18)?** *Answered in D19: top-up per team and position.*
+Recommendation: **per team and position, top the expected starters back up to the team's recent average**
+(e.g. that team's average starting defenders over the window). The missing share goes to the team's
+available players *at that position*, in proportion to their headroom (P(available) − P(start)), weighted
+toward players who have actually been getting minutes (starts plus substitute appearances). It's capped at
+P(available). A backup goalkeeper then inherits the regular's absence, and an injured center-back's starts
+go to the other defenders.
+Alternatives: drop the surprise factor (ignores measured risk, and still misses the replacements), or a full
+team-sheet model that forces exactly 11 in every simulation (it also captures who-replaces-whom
+correlation, but it's heavier; possibly later).
