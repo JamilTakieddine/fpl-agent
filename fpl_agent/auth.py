@@ -19,17 +19,23 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from fpl_agent.http import HttpSession
+from fpl_agent.http import HttpResponse, HttpSession
 
 FPL_ORIGIN = "https://fantasy.premierleague.com"
 OIDC_KEY_PREFIX = "oidc.user:"
 REFRESH_MARGIN_S = 300  # refresh if the access token has less than 5 minutes left
+REFRESH_ATTEMPTS = 3  # on 429 only; see refresh()
+MAX_RETRY_AFTER_S = 30  # cap on a single Retry-After wait
 TIMEOUT_S = 20
 RELOGIN_HINT = "Log in again: python spikes/phase0_auth.py --fresh"
 
 
 class AuthError(Exception):
     """Auth can't be recovered automatically; a human needs to log in again."""
+
+
+class RateLimitedError(Exception):
+    """The login server kept answering 429 (Cloudflare). Temporary: retry later, don't re-login."""
 
 
 class TokenSet(BaseModel):
@@ -40,6 +46,9 @@ class TokenSet(BaseModel):
     access_token: str
     refresh_token: str
     expires_at: int  # unix seconds when access_token expires
+    # Cached from OIDC discovery so each refresh is one request, not two, to the rate-limited
+    # login host (D12). None in token files written before this existed: discovered once.
+    token_endpoint: str | None = None
 
 
 class TokenStore(Protocol):
@@ -122,20 +131,54 @@ def needs_refresh(tokens: TokenSet, now: float, margin_s: int = REFRESH_MARGIN_S
     return tokens.expires_at - now < margin_s
 
 
-def refresh(tokens: TokenSet, http: HttpSession, now: float) -> TokenSet:
-    """Exchange the refresh token for new tokens. Doesn't save them: the caller must, at once."""
-    disco = http.get(f"{tokens.issuer}/.well-known/openid-configuration", timeout=TIMEOUT_S)
+def _retry_after_s(resp: HttpResponse) -> float:
+    try:
+        return min(float(resp.headers.get("Retry-After", "5")), MAX_RETRY_AFTER_S)
+    except ValueError:  # an HTTP-date instead of seconds
+        return 5.0
+
+
+def discover_token_endpoint(issuer: str, http: HttpSession) -> str:
+    disco = http.get(f"{issuer}/.well-known/openid-configuration", timeout=TIMEOUT_S)
+    if disco.status_code == 429:
+        raise RateLimitedError("Login server rate-limited OIDC discovery (429)")
     disco.raise_for_status()
-    resp = http.post(
-        disco.json()["token_endpoint"],
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": tokens.refresh_token,
-            "client_id": tokens.client_id,
-        },
-        headers={"Origin": FPL_ORIGIN, "Accept": "application/json"},
-        timeout=TIMEOUT_S,
-    )
+    endpoint: str = disco.json()["token_endpoint"]
+    return endpoint
+
+
+def refresh(
+    tokens: TokenSet,
+    http: HttpSession,
+    now: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> TokenSet:
+    """Exchange the refresh token for new tokens. Doesn't save them: the caller must, at once.
+
+    A 429 is retried (up to REFRESH_ATTEMPTS, honoring Retry-After). That's normally unsafe for a
+    token call, since a processed request would have consumed the refresh token, but Cloudflare's
+    429 is returned BEFORE the request reaches the login server, so the token is untouched.
+    400/401 means revoked/expired: AuthError, a human must log in. Still 429: RateLimitedError.
+    """
+    endpoint = tokens.token_endpoint or discover_token_endpoint(tokens.issuer, http)
+    for attempt in range(1, REFRESH_ATTEMPTS + 1):
+        resp = http.post(
+            endpoint,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": tokens.refresh_token,
+                "client_id": tokens.client_id,
+            },
+            headers={"Origin": FPL_ORIGIN, "Accept": "application/json"},
+            timeout=TIMEOUT_S,
+        )
+        if resp.status_code != 429:
+            break
+        if attempt < REFRESH_ATTEMPTS:
+            sleep(_retry_after_s(resp))
+    else:
+        raise RateLimitedError(f"Token refresh rate-limited (429) {REFRESH_ATTEMPTS} times")
+
     if resp.status_code in (400, 401):
         # invalid_grant etc.: the refresh token was revoked or expired. Retrying won't help.
         raise AuthError(f"Token refresh rejected ({resp.status_code}). {RELOGIN_HINT}")
@@ -147,6 +190,7 @@ def refresh(tokens: TokenSet, http: HttpSession, now: float) -> TokenSet:
         access_token=body["access_token"],
         refresh_token=body.get("refresh_token", tokens.refresh_token),
         expires_at=int(now) + int(body.get("expires_in", 3600)),
+        token_endpoint=endpoint,
     )
 
 

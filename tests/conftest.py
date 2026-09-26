@@ -20,6 +20,7 @@ def load_fixture(name: str) -> Any:
 class FakeResponse:
     status_code: int = 200
     body: Any = None
+    headers: dict[str, str] = field(default_factory=dict)
 
     def json(self) -> Any:
         return self.body
@@ -35,16 +36,23 @@ class FakeResponse:
 class FakeSession:
     """Stands in for requests.Session: canned responses by URL, and a log of every call."""
 
-    routes: dict[str, FakeResponse] = field(default_factory=dict)
+    routes: dict[str, FakeResponse | list[FakeResponse]] = field(default_factory=dict)
     calls: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append(("GET", url, kwargs))
-        return self.routes[url]
+        return self._next(url)
 
     def post(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append(("POST", url, kwargs))
-        return self.routes[url]
+        return self._next(url)
+
+    def _next(self, url: str) -> FakeResponse:
+        """A route can be one response, or a list played in order (e.g. 429 then 200)."""
+        route = self.routes[url]
+        if isinstance(route, list):
+            return route.pop(0) if len(route) > 1 else route[0]
+        return route
 
 
 @pytest.fixture
