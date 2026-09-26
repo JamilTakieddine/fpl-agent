@@ -65,6 +65,7 @@ class Player(FplModel):
     status: str  # a=available, d=doubtful, i=injured, s=suspended, u=unavailable, n=not in squad
     chance_of_playing_next_round: int | None  # None means no flag, not 0%
     news: str
+    news_added: datetime | None  # when the flag/news was last set or changed
     minutes: int  # season total
     starts: int  # season total
 

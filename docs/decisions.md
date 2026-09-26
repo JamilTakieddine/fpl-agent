@@ -5,7 +5,8 @@ newest at the bottom. The format for each is context, what we chose, what we did
 and what it means for later work.
 
 Standing design rules (dry run by default, LLMs only at the edges, rules as pure functions) live in
-`CLAUDE.md`. This file records the specific calls made while building.
+`CLAUDE.md`. This file records the specific calls made while building. What to re-check and how often:
+`docs/maintenance.md`.
 
 ---
 
@@ -406,6 +407,49 @@ one request, with `explain` giving minutes **per match** (0 for unused players).
 - Re-measure `SURPRISE_NON_START` as the season goes on, in the Phase 2 calibration.
 - An early live check on the real squad already flags a starting-XI player with an 18% chance to start (a
   rotation risk) and a 75% doubtful forward. Phase 3's lineup and bench logic acts on exactly these.
+
+---
+
+## D14. Flag snapshots: save everyone's availability every run, and excuse flagged-out matches
+
+*Phase 1 step 4b, 2026-09-26*
+
+**Context.** The lineup baseline (D13) counted a match a player missed through **injury** the same as being
+**benched while fit**. FPL only exposes flags as they are *now*, so "was he injured before GW3's deadline?"
+can't be answered later. Example: Sangaré's flag is 100%, meaning cleared, so he was probably flagged
+recently, and his 2 "unused" matches may have been injury absences.
+
+**Decisions** (`fpl_agent/data/snapshots.py`):
+- **Every run saves one `FlagSnapshot` per gameweek**: `status`, `chance_of_playing_next_round`, `news` and
+  `news_added` for all players. It's taken from the bootstrap the run already fetched, so there are **no
+  extra requests**. It's stored in `data/snapshots/flags_gwNN.json` (gitignored; ~70 KB) behind a
+  `SnapshotStore` interface, so Phase 4 can swap in a cloud bucket.
+- **The latest snapshot before the deadline wins.** It's only saved if taken before that gameweek's deadline,
+  and an older run can never overwrite a newer snapshot. The day-before check and the deadline run both write.
+- **Excused matches:** a gameweek where the player was **flagged out** (availability 0) **and didn't play** is
+  dropped from his history (`RoleHistory.excused`). If he played anyway, the flag was wrong and the match
+  counts. Doubtful players (25–75%) aren't excused.
+- **Recording is separate from predicting:** `record_snapshot()` writes, and `load_predictions()` only reads.
+- **The snapshot is recorded before any logged-in call**, so a login failure can't cost a gameweek of flags.
+- **Snapshots are validated with pydantic when read back** (a file on disk is outside data too).
+- **Side fix found here:** the HTTP session now uses `raise_on_status=False`, so after its retries run out it
+  returns the final 429/5xx instead of raising urllib3's `RetryError`. Without this, a rate-limited discovery
+  request crashed with a traceback instead of raising `RateLimitedError` (D12's handling never ran). The
+  unit tests hadn't caught it because the fake session doesn't imitate urllib3; the live check did.
+
+**Alternatives.**
+- *Infer injuries from minutes alone.* Impossible: 0 minutes looks the same whether injured or dropped.
+- *Use `news_added` to date injuries backwards.* It only holds the time of the *latest* change, so it can't
+  tell when an absence started.
+- *Third-party historical datasets.* An outside dependency with unknown accuracy, and not needed once we
+  record our own.
+- *Commit snapshots to git.* They're generated output, not source, and would bloat the repo weekly.
+
+**Consequences.**
+- **It only helps from now on.** The first snapshot is GW6 (2026-09-26). The 6-week window is fully covered
+  from about GW12. Until then, older absences still count against a player.
+- With snapshots, `SURPRISE_NON_START` can be measured properly (unflagged *at the deadline*, not today's
+  flag as a stand-in). See `docs/maintenance.md`.
 
 ---
 

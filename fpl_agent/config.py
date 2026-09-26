@@ -18,10 +18,15 @@ class Settings:
     entry_id: int
     h2h_league_id: int | None
     secrets_dir: Path
+    data_dir: Path
 
     @property
     def token_file(self) -> Path:
         return self.secrets_dir / "fpl_tokens.json"
+
+    @property
+    def snapshot_dir(self) -> Path:
+        return self.data_dir / "snapshots"
 
     @property
     def phase0_state_file(self) -> Path:
@@ -46,4 +51,5 @@ def load_settings() -> Settings:
         entry_id=entry_id,
         h2h_league_id=_optional_int("FPL_H2H_LEAGUE_ID"),
         secrets_dir=Path(os.environ.get("FPL_SECRETS_DIR", ".secrets")),
+        data_dir=Path(os.environ.get("FPL_DATA_DIR", "data")),
     )

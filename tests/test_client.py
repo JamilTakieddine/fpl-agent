@@ -63,3 +63,5 @@ def test_session_retries_gets_but_never_writes() -> None:
     assert retry.total == 3
     assert retry.allowed_methods == frozenset({"GET"})
     assert 429 in retry.status_forcelist
+    # Final 429/5xx comes back as a response (not urllib3's RetryError) so callers can map it.
+    assert retry.raise_on_status is False

@@ -4,8 +4,9 @@ An autonomous Fantasy Premier League manager. It runs before each gameweek deadl
 and sets the lineup, captain, bench, transfers and chips to maximize head-to-head win probability.
 
 Status: Phase 1 in progress. Done: typed FPL API client with auth and token refresh (step 1), the
-fixture calendar with double/blank gameweek detection (step 2), H2H opponent inputs (step 3), and a
-predicted-lineup baseline from FPL's own data (step 4). Next: Kalshi odds (step 5).
+fixture calendar with double/blank gameweek detection (step 2), H2H opponent inputs (step 3), a
+predicted-lineup baseline from FPL's own data (step 4), and per-gameweek availability-flag snapshots
+(step 4b). Next: Kalshi odds (step 5).
 
 ## Setup
 ```bash
@@ -35,5 +36,6 @@ The first run opens a clean Chromium window for you to log in. The session is sa
 (gitignored), and later runs reuse it without a browser until it expires.
 
 Why it works this way, and every other design decision: [`docs/decisions.md`](docs/decisions.md).
+What to re-check and how often: [`docs/maintenance.md`](docs/maintenance.md).
 
 Unofficial project. Not affiliated with the Premier League or Fantasy Premier League.

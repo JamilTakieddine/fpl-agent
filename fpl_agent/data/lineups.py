@@ -14,8 +14,10 @@ rest on predictions. This baseline uses only FPL's own data (see docs/decisions.
   illness, rotation). Every start probability is scaled by (1 - SURPRISE_NON_START); the removed
   share goes to "no minutes" (slightly conservative).
 
-Known limitation: a player just back from injury looks like a non-starter (his recent matches
-were missed). News-text flags (LLM, at the edge) or external lineups can correct that later.
+- Excused matches (D14): if a flag snapshot shows the player was flagged OUT before a gameweek's
+  deadline and he didn't play, that gameweek's matches are dropped from his history instead of
+  counting as "unused". Snapshots exist only from when recording started, so older matches still
+  count against a player who was injured then.
 Turning these probabilities into minute distributions is Phase 2's job.
 """
 
@@ -26,6 +28,7 @@ from dataclasses import dataclass
 from fpl_agent.data.calendar import Calendar
 from fpl_agent.data.client import FplClient
 from fpl_agent.data.models import EventLive, LiveElement, Player
+from fpl_agent.data.snapshots import FlagSnapshot, PlayerFlag, SnapshotStore
 
 WINDOW_GWS = 6
 PRIOR_MATCHES = 1.0
@@ -41,9 +44,10 @@ SURPRISE_NON_START = 0.10
 class RoleHistory:
     """What a player did in his team's finished matches over the window."""
 
-    team_matches: int
+    team_matches: int  # matches that count (excused ones already removed)
     starts: int
     sub_appearances: int  # came on, didn't start
+    excused: int = 0  # matches skipped because he was flagged out before the deadline
 
     @property
     def unused(self) -> int:
@@ -63,15 +67,23 @@ class LineupPrediction:
         return 1.0 - self.p_start - self.p_cameo
 
 
-def availability(player: Player) -> float:
-    """Probability the player is available for the next round, from FPL's flags."""
-    if player.chance_of_playing_next_round is not None:
-        return player.chance_of_playing_next_round / 100
-    if player.status in UNAVAILABLE_STATUSES:
+def availability_of(status: str, chance_of_playing_next_round: int | None) -> float:
+    """Probability of being available, from FPL's flag fields (today's or a snapshot's)."""
+    if chance_of_playing_next_round is not None:
+        return chance_of_playing_next_round / 100
+    if status in UNAVAILABLE_STATUSES:
         return 0.0
-    if player.status == "d":
+    if status == "d":
         return DOUBTFUL_NO_PERCENT
     return 1.0
+
+
+def availability(player: Player) -> float:
+    return availability_of(player.status, player.chance_of_playing_next_round)
+
+
+def flagged_out(flag: PlayerFlag) -> bool:
+    return availability_of(flag.status, flag.chance_of_playing_next_round) == 0.0
 
 
 def team_matches_in(calendar: Calendar, team: int, events: list[int]) -> set[int]:
@@ -85,7 +97,7 @@ def team_matches_in(calendar: Calendar, team: int, events: list[int]) -> set[int
     }
 
 
-def role_history(team_matches: set[int], lives: list[LiveElement]) -> RoleHistory:
+def role_history(team_matches: set[int], lives: list[LiveElement], excused: int = 0) -> RoleHistory:
     """Starts and substitute appearances in the given team matches.
 
     `lives` are this player's entries from each gameweek's live data. Only matches of his
@@ -103,6 +115,7 @@ def role_history(team_matches: set[int], lives: list[LiveElement]) -> RoleHistor
         team_matches=len(team_matches),
         starts=starts,
         sub_appearances=appearances - starts,
+        excused=excused,
     )
 
 
@@ -133,14 +146,35 @@ def window_events(event: int, n: int = WINDOW_GWS) -> list[int]:
     return list(range(max(1, event - n), event))
 
 
+def excused_matches(
+    calendar: Calendar,
+    team: int,
+    player_id: int,
+    lives: list[LiveElement],
+    snapshots: dict[int, FlagSnapshot],
+) -> set[int]:
+    """Team matches to skip: the player was flagged out before that gameweek's deadline AND
+    didn't play (if he played anyway, the flag was wrong and the match counts)."""
+    played = {x.fixture for live in lives for x in live.explain if x.minutes() > 0}
+    excused: set[int] = set()
+    for gw, snap in snapshots.items():
+        flag = snap.flags.get(player_id)
+        if flag is not None and flagged_out(flag):
+            excused |= team_matches_in(calendar, team, [gw]) - played
+    return excused
+
+
 def predict_all(
     players: list[Player],
     calendar: Calendar,
     lives_by_event: dict[int, EventLive],
     event: int,
+    snapshots: dict[int, FlagSnapshot] | None = None,
 ) -> dict[int, LineupPrediction]:
-    """Predictions for every player for `event`, from already-fetched live data."""
+    """Predictions for every player for `event`, from already-fetched live data and any flag
+    snapshots for the window's gameweeks."""
     window = [gw for gw in window_events(event) if gw in lives_by_event]
+    window_snaps = {gw: s for gw, s in (snapshots or {}).items() if gw in window}
     by_player: dict[int, list[LiveElement]] = {}
     for gw in window:
         for el in lives_by_event[gw].elements:
@@ -149,15 +183,31 @@ def predict_all(
     all_past = [gw for gw in calendar.gameweeks if gw < event]
     predictions = {}
     for p in players:
-        history = role_history(team_matches_in(calendar, p.team, window), by_player.get(p.id, []))
+        lives = by_player.get(p.id, [])
+        excused = excused_matches(calendar, p.team, p.id, lives, window_snaps)
+        matches = team_matches_in(calendar, p.team, window) - excused
+        history = role_history(matches, lives, excused=len(excused))
         prior = season_start_rate(p, len(team_matches_in(calendar, p.team, all_past)))
         predictions[p.id] = predict(p, history, prior)
     return predictions
 
 
 def load_predictions(
-    client: FplClient, calendar: Calendar, event: int
+    client: FplClient,
+    calendar: Calendar,
+    event: int,
+    snapshots: SnapshotStore | None = None,
 ) -> dict[int, LineupPrediction]:
-    """Fetch the window's live data (one request per gameweek) and predict every player."""
-    lives = {gw: client.event_live(gw) for gw in window_events(event)}
-    return predict_all(client.bootstrap().elements, calendar, lives, event)
+    """Fetch the window's live data (one request per gameweek) and predict every player.
+
+    Reads snapshots only; recording this run's snapshot is the caller's job (record_snapshot).
+    """
+    window = window_events(event)
+    lives = {gw: client.event_live(gw) for gw in window}
+    snaps: dict[int, FlagSnapshot] = {}
+    if snapshots is not None:
+        for gw in window:
+            snap = snapshots.load(gw)
+            if snap is not None:
+                snaps[gw] = snap
+    return predict_all(client.bootstrap().elements, calendar, lives, event, snaps)
