@@ -367,6 +367,48 @@ With the VPN off, the login worked first time.
 
 ---
 
+## D13. Predicted lineups, baseline: FPL flags, per-match role over 6 gameweeks, measured surprise rate
+
+*Phase 1 step 4, 2026-09-26*
+
+**Context.** The agent decides before confirmed lineups exist, so Phase 2's minutes model (no minutes / cameo /
+start) needs per-player probabilities. FPL offers availability flags (`status`, `chance_of_playing_next_round`,
+`news`) and `/event/{gw}/live/`. That endpoint returns **every player's** minutes and starts for a gameweek in
+one request, with `explain` giving minutes **per match** (0 for unused players).
+
+**Decisions** (`fpl_agent/data/lineups.py`):
+- **Availability:** an explicit percentage wins (75 → 0.75). With no flag, status `a` is 1.0, `i`/`s`/`u`/`n` is 0,
+  and `d` without a percentage is 0.5.
+- **Role:** start and cameo rates over the team's **finished matches** in the last **6** gameweeks, counted per
+  match. A blank gameweek isn't "benched", a double gameweek is two matches, and matches for a previous club
+  are ignored. Cost: **5–6 requests per run**, not one per player (667).
+- **Shrinkage:** a Dirichlet prior worth **one match** of season-long start rate, so thin data can't give 0% or
+  100%.
+- **Surprise non-starts: `SURPRISE_NON_START = 0.10`, measured, not guessed.** Of 130 currently unflagged players
+  who started all their team's GW1–4 matches, 13 didn't start GW5. (21 of 144, 14.6%, before excluding players
+  flagged now, who were likely known to be injured beforehand.) It's one gameweek, so about ±3 points. The
+  removed share goes to "no minutes".
+- **Output:** `p_start`, `p_cameo`, `p_no_minutes` per player. Turning these into minute distributions is
+  Phase 2's job.
+
+**Alternatives.**
+- *`/element-summary/{id}/` per player.* Full history, but 667 requests per run.
+- *Season totals from bootstrap.* Stale: a player dropped a month ago still looks nailed.
+- *Raw frequencies without shrinkage.* One match gives 0% or 100%.
+- *Treat an ever-present starter as 100%.* The measurement says that's wrong about 1 time in 10, and
+  captain/vice-captain and bench decisions exist precisely for that risk.
+- *Scrape external predicted lineups now.* Fragile and possibly against the sites' terms. Worth adding only
+  once we can measure whether it beats this baseline.
+
+**Consequences / limitations.**
+- A player just back from injury looks like a non-starter, because the matches he missed count against him.
+  News-text flags (LLM at the edge) or external lineups can fix this later.
+- Re-measure `SURPRISE_NON_START` as the season goes on, in the Phase 2 calibration.
+- An early live check on the real squad already flags a starting-XI player with an 18% chance to start (a
+  rotation risk) and a 75% doubtful forward. Phase 3's lineup and bench logic acts on exactly these.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

@@ -65,7 +65,8 @@ class Player(FplModel):
     status: str  # a=available, d=doubtful, i=injured, s=suspended, u=unavailable, n=not in squad
     chance_of_playing_next_round: int | None  # None means no flag, not 0%
     news: str
-    minutes: int
+    minutes: int  # season total
+    starts: int  # season total
 
 
 class ChipDefinition(FplModel):
@@ -214,3 +215,39 @@ class EntryPicks(FplModel):
 
     picks: list[PublicPick]
     active_chip: str | None
+
+
+# --- per-gameweek live stats (public) -------------------------------------------------------
+
+
+class ExplainStat(FplModel):
+    identifier: str  # e.g. "minutes", "goals_scored"
+    value: int
+
+
+class ExplainFixture(FplModel):
+    """One match's scoring breakdown. Every match the player's team played is listed,
+    including minutes=0 for an unused or absent player, so it gives per-match minutes."""
+
+    fixture: int
+    stats: list[ExplainStat]
+
+    def minutes(self) -> int:
+        return next((s.value for s in self.stats if s.identifier == "minutes"), 0)
+
+
+class LiveStats(FplModel):
+    minutes: int  # summed over the gameweek (can exceed 90 in a double gameweek)
+    starts: int  # likewise, 0-2
+
+
+class LiveElement(FplModel):
+    id: int
+    stats: LiveStats
+    explain: list[ExplainFixture]
+
+
+class EventLive(FplModel):
+    """/event/{gw}/live/: every player's stats for one gameweek in ONE request."""
+
+    elements: list[LiveElement]

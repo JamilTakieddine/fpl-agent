@@ -3,52 +3,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 
 from fpl_agent.data.calendar import build_calendar, count_fixtures, next_deadline
 from fpl_agent.data.models import Bootstrap, Fixture
-from tests.conftest import load_fixture
-
-T0 = datetime(2026, 10, 10, 10, 0, tzinfo=UTC)
-
-
-def make_bootstrap(n_teams: int, n_gws: int, base: Any) -> Bootstrap:
-    """A tiny season built on the real bootstrap's shape: n teams, n gameweeks a week apart."""
-    data = dict(base)
-    data["teams"] = [
-        {"id": i, "name": f"Team {i}", "short_name": f"T{i}"} for i in range(1, n_teams + 1)
-    ]
-    data["events"] = [
-        {
-            "id": gw,
-            "name": f"Gameweek {gw}",
-            "deadline_time": (T0 + timedelta(weeks=gw - 1)).isoformat(),
-            "finished": False,
-            "is_previous": False,
-            "is_current": False,
-            "is_next": gw == 1,
-        }
-        for gw in range(1, n_gws + 1)
-    ]
-    return Bootstrap.model_validate(data)
-
-
-def fx(fid: int, gw: int | None, home: int, away: int, hours: float = 1.5) -> Fixture:
-    """A fixture kicking off `hours` after that gameweek's deadline (unless unscheduled)."""
-    kickoff = None if gw is None else T0 + timedelta(weeks=gw - 1, hours=hours)
-    return Fixture(
-        id=fid,
-        event=gw,
-        team_h=home,
-        team_a=away,
-        kickoff_time=kickoff,
-        finished=False,
-        team_h_difficulty=3,
-        team_a_difficulty=3,
-    )
+from tests.conftest import T0, fx, load_fixture, make_bootstrap
 
 
 @pytest.fixture

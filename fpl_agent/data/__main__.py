@@ -12,6 +12,7 @@ from fpl_agent.auth import AuthError, FileTokenStore, TokenManager
 from fpl_agent.config import ConfigError, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
+from fpl_agent.data.lineups import load_predictions
 from fpl_agent.data.opponent import load_opponent
 
 
@@ -74,6 +75,19 @@ def main() -> int:
         f"my team: {len(team.picks)} picks, captain {players[cap.element].web_name}, "
         f"{team.transfers.limit} free transfers, bank {team.transfers.bank / 10:.1f}m"
     )
+
+    if upcoming:
+        preds = load_predictions(client, cal, upcoming[0])
+        print(f"predicted minutes GW{upcoming[0]} (start / cameo / none):")
+        for pick in sorted(team.picks, key=lambda x: x.position):
+            pl, pr = players[pick.element], preds[pick.element]
+            flag = (
+                f"  [{pl.status} {pl.chance_of_playing_next_round}%]" if pr.p_available < 1 else ""
+            )
+            print(
+                f"  {pick.position:>2} {pl.web_name:<14} {pr.p_start:.2f} / {pr.p_cameo:.2f}"
+                f" / {pr.p_no_minutes:.2f}{flag}"
+            )
     return 0
 
 
