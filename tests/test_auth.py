@@ -220,3 +220,9 @@ def test_persistent_rate_limit_is_not_reported_as_relogin() -> None:
         refresh(tokens(expires_at=NOW - 10), http, NOW, sleep=waits.append)
     assert waits == [30.0, 30.0]  # capped, and no sleep after the last attempt
     assert len([c for c in http.calls if c[0] == "POST"]) == 3
+
+
+def test_rate_limited_discovery_raises_rate_limited_error() -> None:
+    http = FakeSession(routes={DISCO_URL: FakeResponse(status_code=429)})
+    with pytest.raises(RateLimitedError):
+        refresh(tokens(expires_at=NOW - 10), http, NOW, sleep=lambda _: None)

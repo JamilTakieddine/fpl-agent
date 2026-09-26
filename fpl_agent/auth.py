@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +18,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from fpl_agent.fileio import atomic_write
 from fpl_agent.http import HttpResponse, HttpSession
 
 FPL_ORIGIN = "https://fantasy.premierleague.com"
@@ -68,13 +68,8 @@ def jwt_claims(token: str) -> dict[str, Any]:
 
 
 def write_private(path: Path, text: str) -> None:
-    """Atomic write with 0600 perms: temp file then rename, so a crash can't truncate secrets."""
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(text)
-    tmp.replace(path)
+    """Atomic write with 0600 perms in a 0700 dir: secrets are readable by the owner only."""
+    atomic_write(path, text, mode=0o600, dir_mode=0o700)
 
 
 def tokens_from_storage_state(state: dict[str, Any]) -> TokenSet:

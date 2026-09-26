@@ -8,12 +8,13 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 
-from fpl_agent.auth import AuthError, FileTokenStore, TokenManager
+from fpl_agent.auth import AuthError, FileTokenStore, RateLimitedError, TokenManager
 from fpl_agent.config import ConfigError, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
 from fpl_agent.data.lineups import load_predictions
 from fpl_agent.data.opponent import load_opponent
+from fpl_agent.data.snapshots import FileSnapshotStore, record_snapshot
 
 
 def main() -> int:
@@ -36,6 +37,12 @@ def main() -> int:
     cal = build_calendar(boot, fixtures)
     print(f"fixtures: {len(fixtures)} ({len(cal.unscheduled)} unscheduled / postponed)")
     upcoming = next_deadline(boot, datetime.now(UTC))
+    snapshots = FileSnapshotStore(settings.snapshot_dir)
+    if upcoming:
+        # Public data, recorded before anything that needs login: a flag snapshot can't be
+        # taken retroactively, so an auth problem must not cost us this gameweek's flags.
+        saved = record_snapshot(snapshots, boot, upcoming[0], datetime.now(UTC))
+        print(f"flag snapshot GW{upcoming[0]}: {'saved' if saved else 'kept newer one'}")
     if upcoming:
         gw_id, deadline = upcoming
         hours = (deadline - datetime.now(UTC)).total_seconds() / 3600
@@ -69,6 +76,10 @@ def main() -> int:
     except AuthError as e:
         print(f"Auth error: {e}")
         return 1
+    except RateLimitedError as e:
+        print(f"Login server is rate-limiting this connection (Cloudflare 429): {e}")
+        print("Temporary. If you're on a VPN, turn it off and retry. See D12 in docs/decisions.md.")
+        return 1
     players = boot.players_by_id()
     cap = next(p for p in team.picks if p.is_captain)
     print(
@@ -77,7 +88,7 @@ def main() -> int:
     )
 
     if upcoming:
-        preds = load_predictions(client, cal, upcoming[0])
+        preds = load_predictions(client, cal, upcoming[0], snapshots)
         print(f"predicted minutes GW{upcoming[0]} (start / cameo / none):")
         for pick in sorted(team.picks, key=lambda x: x.position):
             pl, pr = players[pick.element], preds[pick.element]

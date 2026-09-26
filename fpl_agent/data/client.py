@@ -51,6 +51,10 @@ def make_session() -> requests.Session:
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=frozenset({"GET"}),
         respect_retry_after_header=True,
+        # When retries run out, return the last 429/5xx response instead of raising urllib3's
+        # RetryError, so callers see the real status and decide what it means (e.g. auth maps a
+        # login-server 429 to RateLimitedError, not a crash).
+        raise_on_status=False,
     )
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
