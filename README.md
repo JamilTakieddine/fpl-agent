@@ -7,7 +7,8 @@ Status: Phase 1 (data layer) complete: typed FPL API client with auth and token 
 calendar with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
 availability-flag snapshots, and Kalshi match odds converted to expected goals.
 Phase 2 (Monte Carlo simulations) in progress: step 1, scorelines from odds (live Kalshi → saved
-Kalshi → xG-ratings fallback). Next: the minutes simulation.
+Kalshi → xG-ratings fallback). Step 2, minutes simulation, with
+the starter top-up. Next: attacking events (goals and assists given the scoreline).
 
 ## Setup
 ```bash

@@ -1,5 +1,5 @@
-# Predicted-lineup baseline: availability from FPL flags, per-match role history (double and
-# blank gameweeks, transfers), shrinkage and surprise non-starts, and the request count; no network.
+# Predicted-lineup baseline: availability from FPL flags, per-match role history (doubles, blanks,
+# transfers), shrinkage, surprise non-starts, the starter top-up, and request count; no network.
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from fpl_agent.data.calendar import build_calendar
 from fpl_agent.data.client import API, FplClient
 from fpl_agent.data.lineups import (
     SURPRISE_NON_START,
+    LineupPrediction,
     RoleHistory,
     availability,
     load_predictions,
@@ -18,6 +19,7 @@ from fpl_agent.data.lineups import (
     predict_all,
     role_history,
     team_matches_in,
+    top_up_starters,
     window_events,
 )
 from fpl_agent.data.models import (
@@ -180,3 +182,81 @@ def test_load_predictions_fetches_one_live_per_window_gameweek(bootstrap_json: A
     load_predictions(FplClient(http), build_calendar(boot, []), 6)
     live_calls = [c for c in http.calls if "/live/" in c[1]]
     assert len(live_calls) == 5  # GW1-5: not one per player
+
+
+# --- starter top-up (D19) --------------------------------------------------------------------
+
+
+def lp(
+    pid: int, avail: float, start: float, cameo: float, starts: int, subs: int
+) -> LineupPrediction:
+    return LineupPrediction(pid, avail, start, cameo, RoleHistory(5, starts, subs))
+
+
+def squad(bootstrap_json: Any, specs: list[tuple[int, int]]) -> list[Player]:
+    """Players (id, element_type), all on team 1."""
+    return [player(bootstrap_json, id=pid, element_type=et) for pid, et in specs]
+
+
+def test_backup_keeper_inherits_the_regulars_absence(bootstrap_json: Any) -> None:
+    players = squad(bootstrap_json, [(1, 1), (2, 1)])
+    preds = {1: lp(1, 0.0, 0.0, 0.0, 5, 0), 2: lp(2, 1.0, 0.0, 0.0, 0, 0)}  # regular injured
+    out = top_up_starters(preds, players, {1: 5})
+    assert out[2].p_start == pytest.approx(
+        1.0
+    )  # 5 starts in 5 matches: the team always had a keeper
+    assert out[2].topped_up == pytest.approx(1.0)
+    assert out[1].p_start == 0.0  # can't exceed his own availability (0)
+
+
+def test_expected_starters_restored_to_what_the_team_fielded(bootstrap_json: Any) -> None:
+    players = squad(bootstrap_json, [(1, 2), (2, 2), (3, 2)])
+    preds = {
+        1: lp(1, 1.0, 0.9, 0.0, 5, 0),
+        2: lp(2, 0.0, 0.0, 0.0, 5, 0),  # injured regular
+        3: lp(3, 1.0, 0.1, 0.4, 0, 3),  # bench player who's been coming on
+    }
+    out = top_up_starters(preds, players, {1: 5})
+    assert sum(o.p_start for o in out.values()) == pytest.approx(2.0)  # 10 starts / 5 matches
+    assert out[3].p_start > 0.9  # the replacement
+    assert out[3].p_start + out[3].p_cameo <= out[3].p_available + 1e-9
+
+
+def test_involvement_decides_who_inherits(bootstrap_json: Any) -> None:
+    players = squad(bootstrap_json, [(1, 3), (2, 3), (3, 3)])
+    preds = {
+        1: lp(1, 0.0, 0.0, 0.0, 5, 0),  # injured regular
+        2: lp(2, 1.0, 0.0, 0.3, 0, 4),  # has been coming on
+        3: lp(3, 1.0, 0.0, 0.0, 0, 0),  # never used
+    }
+    out = top_up_starters(preds, players, {1: 5})
+    assert out[2].p_start > 2 * out[3].p_start
+
+
+def test_caps_are_respected_and_excess_reshared(bootstrap_json: Any) -> None:
+    players = squad(bootstrap_json, [(1, 2), (2, 2), (3, 2)])
+    preds = {
+        1: lp(1, 0.0, 0.0, 0.0, 10, 0),  # 2 starts per match came from these two
+        2: lp(2, 0.3, 0.0, 0.0, 0, 5),  # doubtful: can take at most 0.3
+        3: lp(3, 1.0, 0.0, 0.0, 0, 1),
+    }
+    out = top_up_starters(preds, players, {1: 5})
+    assert out[2].p_start == pytest.approx(0.3)
+    assert out[3].p_start == pytest.approx(1.0)  # capped too: only 1.3 of the 2.0 can be restored
+
+
+def test_surplus_is_left_alone(bootstrap_json: Any) -> None:
+    players = squad(bootstrap_json, [(1, 4), (2, 4)])
+    preds = {1: lp(1, 1.0, 0.9, 0.0, 5, 0), 2: lp(2, 1.0, 0.8, 0.0, 0, 0)}  # sums to 1.7 > 1.0
+    out = top_up_starters(preds, players, {1: 5})
+    assert out == preds
+
+
+def test_recorded_data_stays_consistent_after_top_up(bootstrap_json: Any) -> None:
+    boot = Bootstrap.model_validate(bootstrap_json)
+    cal = build_calendar(boot, [Fixture.model_validate(f) for f in load_fixture("fixtures")])
+    preds = predict_all(
+        boot.elements, cal, {5: EventLive.model_validate(load_fixture("live_gw5"))}, 6
+    )
+    for p in preds.values():
+        assert p.p_start + p.p_cameo <= p.p_available + 1e-9

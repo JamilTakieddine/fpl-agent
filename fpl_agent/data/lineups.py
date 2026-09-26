@@ -18,11 +18,16 @@ rest on predictions. This baseline uses only FPL's own data (see docs/decisions.
   deadline and he didn't play, that gameweek's matches are dropped from his history instead of
   counting as "unused". Snapshots exist only from when recording started, so older matches still
   count against a player who was injured then.
+- Top-up (D19): per team and position, expected starters are topped back up to what that team
+  actually fielded over the window. Without it, surprise non-starts and absences removed starts
+  that nobody inherited (~9.2 expected starters per team instead of 11), underrating replacements
+  like a backup goalkeeper.
 Turning these probabilities into minute distributions is Phase 2's job.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 from fpl_agent.data.calendar import Calendar
@@ -61,6 +66,7 @@ class LineupPrediction:
     p_start: float
     p_cameo: float  # on as a substitute
     history: RoleHistory
+    topped_up: float = 0.0  # start probability added by top_up_starters (replacement share)
 
     @property
     def p_no_minutes(self) -> float:
@@ -189,7 +195,93 @@ def predict_all(
         history = role_history(matches, lives, excused=len(excused))
         prior = season_start_rate(p, len(team_matches_in(calendar, p.team, all_past)))
         predictions[p.id] = predict(p, history, prior)
-    return predictions
+
+    team_matches = {t: len(team_matches_in(calendar, t, window)) for t in {p.team for p in players}}
+    return top_up_starters(predictions, players, team_matches)
+
+
+def starter_targets(
+    predictions: dict[int, LineupPrediction],
+    players: list[Player],
+    team_matches: dict[int, int],
+) -> dict[tuple[int, int], float]:
+    """(team, element_type) -> starters per match that team actually fielded in the window."""
+    starts: dict[tuple[int, int], int] = {}
+    for p in players:
+        key = (p.team, p.element_type)
+        starts[key] = starts.get(key, 0) + predictions[p.id].history.starts
+    return {k: v / team_matches[k[0]] for k, v in starts.items() if team_matches.get(k[0])}
+
+
+def _water_fill(amount: float, weights: list[float], caps: list[float]) -> list[float]:
+    """Share `amount` in proportion to `weights`, never giving anyone more than their cap; what a
+    capped player can't take is re-shared among the others."""
+    given = [0.0] * len(weights)
+    active = [i for i, (w, c) in enumerate(zip(weights, caps, strict=True)) if w > 0 and c > 0]
+    while amount > 1e-12 and active:
+        total_w = sum(weights[i] for i in active)
+        still = []
+        spent = 0.0
+        for i in active:
+            share = amount * weights[i] / total_w
+            room = caps[i] - given[i]
+            take = min(share, room)
+            given[i] += take
+            spent += take
+            if room - take > 1e-12:
+                still.append(i)
+        amount -= spent
+        if len(still) == len(active):
+            break  # nobody hit a cap: everything was handed out
+        active = still
+    return given
+
+
+def top_up_starters(
+    predictions: dict[int, LineupPrediction],
+    players: list[Player],
+    team_matches: dict[int, int],
+) -> dict[int, LineupPrediction]:
+    """Restore each team's expected starters per position to what it actually fielded.
+
+    The shortfall goes to that team's players at that position in proportion to headroom
+    (p_available - p_start) times involvement ((starts + sub apps + 1) / (matches + 1)), capped at
+    p_available. Cameo chances shrink so start + cameo never exceeds availability. Surpluses are
+    left alone: this only restores starts that nobody inherited, it never removes any.
+    """
+    targets = starter_targets(predictions, players, team_matches)
+    groups: dict[tuple[int, int], list[Player]] = {}
+    for p in players:
+        groups.setdefault((p.team, p.element_type), []).append(p)
+
+    result = dict(predictions)
+    for key, members in groups.items():
+        target = targets.get(key)
+        if target is None:
+            continue
+        shortfall = target - sum(predictions[p.id].p_start for p in members)
+        if shortfall <= 1e-9:
+            continue
+        members = sorted(members, key=lambda p: p.id)
+        preds = [predictions[p.id] for p in members]
+        caps = [max(pr.p_available - pr.p_start, 0.0) for pr in preds]
+        weights = [
+            cap
+            * (pr.history.starts + pr.history.sub_appearances + 1)
+            / (pr.history.team_matches + 1)
+            for cap, pr in zip(caps, preds, strict=True)
+        ]
+        for pr, extra in zip(preds, _water_fill(shortfall, weights, caps), strict=True):
+            if extra <= 0:
+                continue
+            p_start = pr.p_start + extra
+            result[pr.player_id] = dataclasses.replace(
+                pr,
+                p_start=p_start,
+                p_cameo=min(pr.p_cameo, pr.p_available - p_start),
+                topped_up=extra,
+            )
+    return result
 
 
 def load_predictions(
