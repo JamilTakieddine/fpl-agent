@@ -1,7 +1,7 @@
 """Trim real FPL responses into small, committable test fixtures.
 
 Input:  data/cache/{bootstrap,fixtures,my_team}.json   (raw API responses, gitignored)
-        data/cache/{h2h_matches_gw6,opp_history,opp_picks_gw5}.json
+        data/cache/{h2h_matches_gw6,opp_history,opp_picks_gw5,live_gw5}.json
 Output: tests/fixtures/*.json                           (trimmed + anonymized, committed)
 
 Public repo: other managers' names and entry ids (and mine) are replaced with fake ones.
@@ -90,6 +90,9 @@ def main() -> None:
     picks = load("opp_picks_gw5")
     opp_picks = {"picks": picks["picks"], "active_chip": picks["active_chip"]}
 
+    live = load("live_gw5")
+    live_gw5 = {"elements": [e for e in live["elements"] if e["id"] in keep]}
+
     OUT.mkdir(parents=True, exist_ok=True)
     for name, obj in (
         ("bootstrap", trimmed_boot),
@@ -98,6 +101,7 @@ def main() -> None:
         ("h2h_matches", h2h),
         ("opp_history", opp_history),
         ("opp_picks", opp_picks),
+        ("live_gw5", live_gw5),
     ):
         path = OUT / f"{name}.json"
         path.write_text(json.dumps(obj, indent=1, ensure_ascii=False) + "\n")

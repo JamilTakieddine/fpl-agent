@@ -21,6 +21,7 @@ from fpl_agent.data.models import (
     Bootstrap,
     EntryHistory,
     EntryPicks,
+    EventLive,
     Fixture,
     H2HMatch,
     H2HMatchesPage,
@@ -114,3 +115,7 @@ class FplClient:
         """Any manager's picks for a gameweek, or None if not visible (upcoming gameweek: 404)."""
         data = self._get(f"/entry/{entry_id}/event/{event}/picks/", allow_404=True)
         return None if data is None else EntryPicks.model_validate(data)
+
+    def event_live(self, event: int) -> EventLive:
+        """Minutes, starts and per-match breakdown for every player in one gameweek."""
+        return EventLive.model_validate(self._get(f"/event/{event}/live/"))
