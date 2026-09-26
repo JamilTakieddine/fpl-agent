@@ -96,7 +96,7 @@ def test_history_events_clips_at_season_start() -> None:
 
 
 def fake_league_api(bootstrap_json: Any, opp: int) -> FakeSession:
-    routes = {
+    routes: dict[str, FakeResponse | list[FakeResponse]] = {
         f"{API}/bootstrap-static/": FakeResponse(body=bootstrap_json),
         f"{API}/leagues-h2h-matches/league/{LEAGUE}/?event=6&page=1": FakeResponse(
             body=load_fixture("h2h_matches")

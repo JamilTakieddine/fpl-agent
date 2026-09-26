@@ -17,6 +17,7 @@ Usage
   python spikes/phase0_auth.py            # read-only checks (login only if needed)
   python spikes/phase0_auth.py --write    # also save the unchanged lineup
   python spikes/phase0_auth.py --fresh    # ignore the saved session, log in again
+  python spikes/phase0_auth.py --fresh --debug   # same, printing each login request's status
 
 Outputs (gitignored)
   .secrets/fpl_state.json  browser storage state (cookies + localStorage)
@@ -35,6 +36,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from playwright.sync_api import (
     APIRequestContext,
@@ -42,6 +44,7 @@ from playwright.sync_api import (
     BrowserContext,
     Playwright,
     Request,
+    Response,
     sync_playwright,
 )
 from playwright.sync_api import Error as PlaywrightError
@@ -152,7 +155,46 @@ def wait_for_login(ctx: BrowserContext, captured: Auth, closed: dict[str, bool])
     return None
 
 
-def browser_login(pw: Playwright) -> tuple[Browser, APIRequestContext, Auth, int] | None:
+def log_traffic(ctx: BrowserContext) -> None:
+    """--debug: print login-related responses so a failing step is visible.
+
+    Query strings are dropped (they carry one-time codes); token values are never printed.
+    For a failed token call only the OAuth error code is shown.
+    """
+
+    def watched(url: str) -> bool:
+        # Match on the exact host: a substring test also caught third-party tracking URLs that
+        # embed the login URL in their path (with ';' params, so query-stripping missed them).
+        parts = urlsplit(url)
+        return parts.hostname == "account.premierleague.com" or (
+            parts.hostname == "fantasy.premierleague.com"
+            and parts.path.startswith(("/api/me", "/api/my-team"))
+        )
+
+    def on_response(resp: Response) -> None:
+        if not watched(resp.url):
+            return
+        url = urlsplit(resp.url)._replace(query="", fragment="").geturl()
+        line = f"  [debug] {resp.request.method} {resp.status} {url}"
+        if url.endswith("/as/token") and resp.status >= 400:
+            with contextlib.suppress(Exception):
+                line += f"  error={resp.json().get('error')}"
+        print(line, flush=True)
+
+    ctx.on("response", on_response)
+    ctx.on(
+        "console",
+        lambda msg: (
+            print(f"  [debug] console.{msg.type}: {msg.text[:200]}", flush=True)
+            if msg.type == "error"
+            else None
+        ),
+    )
+
+
+def browser_login(
+    pw: Playwright, debug: bool = False
+) -> tuple[Browser, APIRequestContext, Auth, int] | None:
     """Open a clean Chromium window, let the user log in, save the session. None on failure."""
     captured: Auth = {}
     browser = pw.chromium.launch(headless=False)
@@ -160,6 +202,8 @@ def browser_login(pw: Playwright) -> tuple[Browser, APIRequestContext, Auth, int
     browser.on("disconnected", lambda _: closed.update(flag=True))
     ctx = browser.new_context()
     capture_auth(ctx, captured)
+    if debug:
+        log_traffic(ctx)
 
     print("A browser window is open. Log in to FPL there (accept cookies, etc).")
     print(f"Waiting up to {LOGIN_TIMEOUT_S // 60} minutes...")
@@ -274,6 +318,11 @@ def main() -> int:
         help="POST the current lineup back unchanged (the real test)",
     )
     ap.add_argument(
+        "--debug",
+        action="store_true",
+        help="print login requests and statuses (no tokens) to diagnose login problems",
+    )
+    ap.add_argument(
         "--fresh",
         action="store_true",
         help="ignore the saved session and log in again in a browser",
@@ -288,7 +337,7 @@ def main() -> int:
         if session:
             req, auth, entry_id = session
         else:
-            login = browser_login(pw)
+            login = browser_login(pw, debug=args.debug)
             if login is None:
                 return 1
             browser, req, auth, entry_id = login

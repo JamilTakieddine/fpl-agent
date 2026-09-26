@@ -1,5 +1,5 @@
-# Token handling: when to refresh, saving rotated tokens before use, revoked-token errors, the
-# file store, and importing from the Phase 0 login state; fake HTTP and fake clock, no network.
+# Token handling: when to refresh, saving rotated tokens before use, revoked-token errors, 429
+# retries, endpoint caching, the file store and Phase 0 import; fake HTTP and clock, no network.
 
 from __future__ import annotations
 
@@ -14,9 +14,11 @@ import pytest
 from fpl_agent.auth import (
     AuthError,
     FileTokenStore,
+    RateLimitedError,
     TokenManager,
     TokenSet,
     needs_refresh,
+    refresh,
     tokens_from_storage_state,
 )
 from tests.conftest import FakeResponse, FakeSession
@@ -183,3 +185,38 @@ def test_file_store_imports_login_state_when_newer(tmp_path: Path) -> None:
 
     assert store.load().refresh_token == "r-fresh-login"
     assert FileTokenStore(token_file).load().refresh_token == "r-fresh-login"  # persisted
+
+
+def test_token_endpoint_is_discovered_once_then_cached() -> None:
+    events: list[str] = []
+    store = MemoryStore(tokens(expires_at=NOW - 10), events)
+    http = session_with_refresh()
+    TokenManager(store, http, clock=lambda: NOW).access_token()
+    assert store.t.token_endpoint == TOKEN_URL
+    assert [c[0] for c in http.calls] == ["GET", "POST"]  # discovery + token
+
+    # Next refresh (an hour later) skips discovery: one request to the rate-limited host.
+    http.calls.clear()
+    TokenManager(store, http, clock=lambda: NOW + 7200).access_token()
+    assert [c[0] for c in http.calls] == ["POST"]
+
+
+def test_rate_limited_refresh_is_retried_after_retry_after() -> None:
+    waits: list[float] = []
+    http = session_with_refresh()
+    ok = http.routes[TOKEN_URL]
+    assert isinstance(ok, FakeResponse)
+    http.routes[TOKEN_URL] = [FakeResponse(status_code=429, headers={"Retry-After": "7"}), ok]
+    new = refresh(tokens(expires_at=NOW - 10), http, NOW, sleep=waits.append)
+    assert new.access_token == "a-new"
+    assert waits == [7.0]
+
+
+def test_persistent_rate_limit_is_not_reported_as_relogin() -> None:
+    http = session_with_refresh()
+    http.routes[TOKEN_URL] = FakeResponse(status_code=429, headers={"Retry-After": "999"})
+    waits: list[float] = []
+    with pytest.raises(RateLimitedError):
+        refresh(tokens(expires_at=NOW - 10), http, NOW, sleep=waits.append)
+    assert waits == [30.0, 30.0]  # capped, and no sleep after the last attempt
+    assert len([c for c in http.calls if c[0] == "POST"]) == 3

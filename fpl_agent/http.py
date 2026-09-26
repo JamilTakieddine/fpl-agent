@@ -2,7 +2,7 @@
 
 Code takes these Protocols instead of requests.Session, so tests pass a fake without
 type: ignore, and the dependency is explicit: only get/post with headers/timeout/data,
-status_code, json() and raise_for_status(). requests.Session satisfies them structurally.
+status_code, headers, json() and raise_for_status(). requests.Session satisfies them structurally.
 The keyword arguments are listed explicitly: a Protocol with **kwargs would demand that every
 implementation accept arbitrary keywords, which requests.Session doesn't.
 """
@@ -16,6 +16,8 @@ from typing import Any, Protocol
 class HttpResponse(Protocol):
     @property
     def status_code(self) -> int: ...
+    @property
+    def headers(self) -> Mapping[str, str]: ...
     def json(self) -> Any: ...
     def raise_for_status(self) -> None: ...
 

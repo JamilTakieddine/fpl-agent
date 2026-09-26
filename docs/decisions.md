@@ -328,6 +328,45 @@ fixtures, entry history (chips played), and picks for finished gameweeks.
 
 ---
 
+## D12. The login server is rate-limited by Cloudflare: fewer calls, retry 429s, refresh early
+
+*Phase 1, 2026-09-26*
+
+**Context.** A re-login looped endlessly: clicking "Log in" kept returning to the login page. The `--debug`
+log showed the FPL page's request for `account.premierleague.com/as/.well-known/openid-configuration`
+failing with a CORS error. `curl` from the same connection got **`429` from Cloudflare** whatever the User-Agent.
+The connection was a commercial VPN on an M247 datacenter IP, shared with many other users. Cloudflare's 429
+page has no CORS headers, so the browser reported it as a CORS error and the page couldn't finish the login.
+With the VPN off, the login worked first time.
+
+**Decisions.**
+- **Cache the token endpoint** in `TokenSet.token_endpoint` after the first discovery, so each refresh is 1
+  request to the login server instead of 2. Older token files without the field still load and discover once.
+- **Retry the token request on 429** (3 attempts, honoring `Retry-After`, capped at 30s each). Retrying a token
+  request is normally unsafe, because a processed request would have used up the rotating refresh token.
+  Cloudflare's 429 is sent *before* the request reaches the login server, so the token is untouched. If it's
+  still 429 after that, raise **`RateLimitedError`**, separate from `AuthError`: it means "try again soon",
+  not "a human must log in". Only 400/401 mean a revoked login.
+- **Plan for Phase 4: refresh early.** Access tokens last 1 hour, so the deadline run should refresh 30–60
+  minutes before the deadline (plus the day-before check run), not at T-15. A temporary 429 then still leaves
+  time, and an already-refreshed access token keeps working even if later calls fail.
+- **`phase0_auth.py --debug`** logs login requests by exact hostname, without query strings, and never logs
+  tokens. (An earlier substring match also logged tracking URLs that embedded the login URL; fixed.)
+
+**Alternatives.**
+- *Spoof a browser User-Agent.* It made no difference: the limit applies to the IP, not the client.
+- *Retry any failed token request.* Unsafe: a request the server did process consumes the refresh token, and
+  replaying that token after the grace period revokes the login (see Findings).
+- *Hardcode the token endpoint.* Saves the first discovery too, but breaks silently if FPL moves it. Caching
+  what was discovered keeps it correct.
+
+**Consequences.**
+- Cloud Run also runs from datacenter IPs, so the same Cloudflare treatment is likely. The early refresh and
+  the day-before check run are what protect Goal 1, not the retries alone.
+- Locally, don't run the agent through a VPN.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -355,6 +394,9 @@ fixtures, entry history (chips played), and picks for finished gameweeks.
   - **Access tokens survive the revocation until they expire** (still worked with 57 minutes left). FPL's API
     checks the token itself rather than asking the login server. So a run that has already refreshed can
     always finish submitting that week's lineup.
+- **The login server sits behind Cloudflare and rate-limits by IP** (2026-09-26). From a shared VPN
+  datacenter IP, `account.premierleague.com` answered `429` to every request, which shows up in the browser as
+  a CORS error and a login loop. On a normal connection it answered 200. See D12.
 - Read-only access is confirmed: `/api/me/` and `/api/my-team/{entry}/` return picks with `selling_price`,
   the transfers info and chip status.
 - **Write access is confirmed.** `POST /api/my-team/{entry}/` with the bearer header, `Origin` and `Referer`
