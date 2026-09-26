@@ -6,7 +6,8 @@ and sets the lineup, captain, bench, transfers and chips to maximize head-to-hea
 Status: Phase 1 (data layer) complete: typed FPL API client with auth and token refresh, fixture
 calendar with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
 availability-flag snapshots, and Kalshi match odds converted to expected goals.
-Next: Phase 2 (Monte Carlo match and player simulations).
+Phase 2 (Monte Carlo simulations) in progress: step 1, scorelines from odds (live Kalshi → saved
+Kalshi → xG-ratings fallback). Next: the minutes simulation.
 
 ## Setup
 ```bash

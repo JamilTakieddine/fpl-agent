@@ -515,6 +515,87 @@ recently, and his 2 "unused" matches may have been injury absences.
 
 ---
 
+## D16. Phase 2 simulation approach; the fallback for fixtures without odds (answers Q3)
+
+*Phase 2 step 1, 2026-09-26*
+
+**Context.** Phase 3 maximizes H2H win probability, which depends on the *distribution* of points, including
+variance and correlation (teammates share clean sheets; captaincy doubles one player's swing), not just
+expected points. Some fixtures have no usable Kalshi odds at run time (Q3).
+
+**Decisions.**
+- **Monte Carlo over whole gameweeks.** Each simulation draws every fixture's scoreline, every player's
+  minutes, then events and points, so correlations come out naturally. Phase 3 scores any lineup against the
+  same simulations.
+- **`numpy`** (new runtime dependency) for vectorized sampling: 10,000 simulations × ~380 players is far too
+  slow in pure Python.
+- **A seeded `numpy.random.Generator`**, with fixtures drawn in id order. Runs are reproducible, and Phase 3
+  compares lineups on identical draws (common random numbers), so differences reflect the lineups, not luck.
+- **Scorelines are independent Poisson** with the Kalshi expected goals, the same model Phase 1 used to fit
+  the odds.
+- **Fallback when there are no odds: shrunk xG team ratings** (`fpl_agent/model/scoreline.py`):
+  - λ_home = home_avg × attack(home) × weakness(away), and likewise for away.
+  - Attack = the team's xG per match; weakness = xG conceded per 90 by its most-used goalkeeper.
+  - Both are relative to the league mean and shrunk toward average by 5 made-up matches.
+  - `FixtureRates.source` records `kalshi-totals`, `kalshi-draw` or `xg-ratings`.
+
+**Evidence.**
+- **FPL's `strength_attack/defence_*` ratings are all 0 this season**, so they're unusable. Only coarse
+  `strength_overall_*` values (4–5) are filled in.
+- **Against Kalshi on the 4 fixtures that have both** (8 team rates), the mean absolute error was **0.47 goals**
+  for ratings from actual goals and **0.39** for xG. Both are mediocre; 5 gameweeks of team data is weak next
+  to a market price.
+
+**Alternatives.**
+- *Goals-based ratings.* Measurably worse, as above.
+- *A flat league average.* Ignores who's playing.
+- *Skipping fixtures without odds.* Leaves players unscored, which risks Goal 1.
+- *Dixon-Coles or a bivariate Poisson now.* Wait for the `draw_gap` evidence (D15).
+- *Pure-Python sampling.* Too slow.
+
+**Consequences / next.**
+- **Recommended next (step 1b): save Kalshi odds on every run**, like the flag snapshots, and use the **most
+  recent saved market price** before the xG ratings. Markets open about two weeks early, so a slightly stale
+  market price should beat a 5-gameweek rating.
+- The fallback's accuracy should be re-measured once more fixtures have odds.
+
+---
+
+## D17. Save Kalshi odds every run; a saved market price beats the xG fallback
+
+*Phase 2 step 1b, 2026-09-27*
+
+**Context.** D16's xG fallback was off by about 0.39 goals against Kalshi. Kalshi opens match markets
+about two weeks early, but a fixture's market can be missing or too thin at run time.
+
+**Decisions** (`fpl_agent/data/odds_store.py`):
+- **Each run merges its odds into one file per gameweek** (`data/odds/odds_gwNN.json`, gitignored). A fixture
+  priced now replaces its entry; fixtures not priced now **keep their last price**. A newer price is never
+  overwritten by an older run.
+- **Only pre-kickoff prices are saved**, since in-play prices aren't pre-match expectations.
+- **Each entry records the kickoff it was priced for.** If FPL moves the fixture by more than 36h, the saved
+  price is ignored, because its market was for a different date.
+- **Priority for each fixture's expected goals: live Kalshi → saved Kalshi → xG ratings.**
+  `FixtureRates.source` says which (`kalshi-saved-*` for saved prices), and `odds_as_of` records the price's
+  age.
+- **No age cap.** Any market price for *this* fixture beat the 5-gameweek ratings in D16's comparison, and the
+  age is recorded so Phase 2 calibration can test that.
+- **The same pattern as the flag snapshots (D14):** a store interface (file now, cloud bucket in Phase 4) and
+  validation when read back.
+
+**Alternatives.**
+- *xG fallback only.* Measurably worse.
+- *Keep every historical price.* Useful for back-testing, but Kalshi's price-history endpoint already
+  provides that. For fallback purposes only the latest price matters.
+- *An age cap (e.g. 7 days).* It would throw away the one market price we have in favour of a weaker model.
+  Revisit if calibration shows old prices are worse than the ratings.
+
+**Consequences.**
+- The first run saved the 4 priced GW6 fixtures. Coverage grows with every run as markets open.
+- The day-before check run (Phase 4) doubles as an odds-saving run.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -584,7 +665,7 @@ re-login (for example a `needs_relogin` flag), so the next run stops and sends a
 (Verified: the in-memory access token keeps working after revocation, so this week's submission is safe.) Never print or log the token as a "backup". Also, since only one refresh may happen at a time, the canary
 and the deadline run must never overlap. Use a single Cloud Run job with no parallelism, and schedules far apart.
 
-**Q3. What does Phase 2 use for a fixture with no usable odds?**
+**Q3. What does Phase 2 use for a fixture with no usable odds?** *Answered in D16 and D17: live Kalshi → saved Kalshi → xG ratings.*
 Options: FPL's `strength_attack/defence_home/away` ratings, a league-average scoreline, or the last known
 Kalshi price. **Measure on GW6 deadline day**, about 60 minutes before the deadline (the planned refresh
 time, D12):

@@ -68,6 +68,8 @@ class Player(FplModel):
     news_added: datetime | None  # when the flag/news was last set or changed
     minutes: int  # season total
     starts: int  # season total
+    expected_goals: float  # season total xG (the API sends it as a string, e.g. "3.45")
+    expected_goals_conceded: float  # xG conceded while he was on the pitch, season total
 
 
 class ChipDefinition(FplModel):
@@ -118,6 +120,8 @@ class Fixture(FplModel):
     team_a: int
     kickoff_time: datetime | None
     finished: bool
+    team_h_score: int | None = None  # None until the match has been played
+    team_a_score: int | None = None
     team_h_difficulty: int
     team_a_difficulty: int
 

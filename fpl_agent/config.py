@@ -29,6 +29,10 @@ class Settings:
         return self.data_dir / "snapshots"
 
     @property
+    def odds_dir(self) -> Path:
+        return self.data_dir / "odds"
+
+    @property
     def phase0_state_file(self) -> Path:
         return self.secrets_dir / "fpl_state.json"
 

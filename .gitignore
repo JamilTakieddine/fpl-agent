@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 data/cache/
 data/snapshots/
+data/odds/
 .DS_Store
 .mypy_cache/
 .ruff_cache/
