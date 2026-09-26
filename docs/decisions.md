@@ -236,6 +236,8 @@ undocumented and changes between seasons, is flaky around deadlines, and needs a
 
 ## D9. Odds source: Kalshi
 
+*Superseded in part by D15: correct-score markets proved unusable; match-result markets are used.*
+
 *Phase 1, 2026-09-25 (your choice; to be built in step 5)*
 
 **Context.** Phase 2 simulates scorelines from each team's expected goals. FPL provides no odds.
@@ -453,6 +455,66 @@ recently, and his 2 "unused" matches may have been injury absences.
 
 ---
 
+## D15. Odds from Kalshi's match-result markets, turned into expected goals with a Poisson fit
+
+*Phase 1 step 5, 2026-09-26. Updates D9.*
+
+**Context.** D9 picked Kalshi and hoped to use correct-score markets. Real data changed that:
+- **Match result (`KXEPLGAME`) is liquid.** A settled GW5 match traded 5.3M contracts. Two weeks out, Arsenal–Leeds
+  already had 6.9k contracts and 2–3¢ spreads.
+- **Correct score (`KXEPLSCORE`) is about 50x thinner** (100k contracts) **and priced incoherently.** "Man Utd
+  wins 4-0" last traded at 16%.
+- **The API moved to decimal-string fields** (`yes_bid_dollars`, `volume_fp`), and old field names return nothing.
+  Settled markets show only final 0.99/0.01 prices, so back-testing needs the price-history endpoint.
+- **Team names differ for 7 teams, and Kalshi isn't self-consistent** ("Nottingham" and "Nottingham Forest").
+  `occurrence_datetime` isn't always kickoff.
+
+**Decisions** (`fpl_agent/data/kalshi.py`, `fpl_agent/data/odds.py`):
+- **Sources:** match result (`KXEPLGAME`) and **total goals (`KXEPLTOTAL`)**, one paginated query per series.
+  Total goals is well traded (about 810k contracts per settled match, mostly on the 1.5 and 2.5 lines), but
+  opens later than match result: none were open two weeks before GW6. Totals attach to a match through the
+  **shared match code** in the event ticker (`KXEPLGAME-26SEP20FULMUN` ↔ `KXEPLTOTAL-26SEP20FULMUN`), with
+  no second round of name matching.
+- **Price** = bid/ask midpoint, normalized so home + draw + away = 1.
+- **Quality gate** (starting values): all three outcomes quoted on both sides, spread ≤ **6¢**, volume ≥
+  **1,000** contracts. A match that fails gets **no odds** rather than bad odds, and the reason is reported.
+- **Mapping:** an **explicit alias table** (`KALSHI_TO_FPL_NAME`) plus the same two teams plus kickoff within
+  **±36h**. **Home/away comes from FPL's fixture.** Unknown names are reported and skipped, never guessed.
+- **Expected goals** use independent Poisson (λ_home, λ_away), solved by bisection with no scipy:
+  - **The total T = λ_home + λ_away comes from the total-goals market when possible.** Under this model the
+    match's total goals is Poisson(T), so each liquid "over X.5" line gives a T. They're combined as a
+    volume-weighted mean.
+  - **Each line has its own gate:** a two-sided quote, spread ≤ 6¢, volume ≥ 1,000, and a price between 0.03
+    and 0.97, since lines near 0 or 1 carry little information and are very sensitive to noise.
+  - **The fallback** (`total_source="draw"`) takes the total from the draw price, which plain Poisson biases
+    low because it underrates draws.
+  - **The split between the teams** always comes from P(home) − P(away).
+  - **`draw_gap`** (model P(draw) − market P(draw)) measures the Poisson draw bias match by match, as evidence
+    for the Phase 2 Dixon-Coles decision.
+  - The outcome grid is normalized so the truncated tail is shared out evenly; a symmetry test caught the away
+    side absorbing it.
+
+**Alternatives.**
+- *Correct-score markets.* Too thin and incoherent.
+- *Fuzzy name matching.* "Manchester" could silently match the wrong club.
+- *Trusting Kalshi's home/away order or timestamp as kickoff.* Neither is guaranteed.
+- *scipy's optimizer.* A heavy dependency for a two-parameter problem that bisection solves exactly.
+- *Removing the margin with the Shin or power method.* The margin here is about 0–3%, so proportional
+  normalization is enough.
+- *Dixon-Coles now.* Plain Poisson slightly underrates draws. With totals from the totals market, that bias
+  no longer affects the total, and `draw_gap` measures what remains before deciding.
+- *Weighted least squares across totals lines.* Slightly more principled, but a volume-weighted mean of
+  per-line totals gives almost the same answer and is easier to check by eye.
+- *A second odds provider now* (The Odds API, Betfair Exchange). A key or account, quotas, bookmaker margins
+  and another schema, for coverage Kalshi may already give by deadline time. Revisit under Q3.
+
+**Consequences.**
+- First live run (GW6, two weeks out): 4 of 10 fixtures priced. 2 were below the volume gate, and 4 had no
+  market yet (they open fixture by fixture). Totals of 2.55–3.11 goals match the Premier League norm.
+- Phase 2 needs a fallback for fixtures without odds (see Open questions).
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -521,3 +583,13 @@ deadline. Reuse detection (see Findings) makes this stricter: the older token st
 re-login (for example a `needs_relogin` flag), so the next run stops and sends an alert instead of refreshing with it.
 (Verified: the in-memory access token keeps working after revocation, so this week's submission is safe.) Never print or log the token as a "backup". Also, since only one refresh may happen at a time, the canary
 and the deadline run must never overlap. Use a single Cloud Run job with no parallelism, and schedules far apart.
+
+**Q3. What does Phase 2 use for a fixture with no usable odds?**
+Options: FPL's `strength_attack/defence_home/away` ratings, a league-average scoreline, or the last known
+Kalshi price. **Measure on GW6 deadline day**, about 60 minutes before the deadline (the planned refresh
+time, D12):
+- how many fixtures have usable match-result odds;
+- how many have totals (`total_source="totals"`).
+
+If coverage is near complete, a crude fallback is fine. If it isn't, add The Odds API (bookmaker
+consensus, including totals) as a second source. Its terms and quotas haven't been checked yet.
