@@ -3,10 +3,10 @@
 An autonomous Fantasy Premier League manager. It runs before each gameweek deadline, simulates the week,
 and sets the lineup, captain, bench, transfers and chips to maximize head-to-head win probability.
 
-Status: Phase 1 in progress. Done: typed FPL API client with auth and token refresh (step 1), the
-fixture calendar with double/blank gameweek detection (step 2), H2H opponent inputs (step 3), a
-predicted-lineup baseline from FPL's own data (step 4), and per-gameweek availability-flag snapshots
-(step 4b). Next: Kalshi odds (step 5).
+Status: Phase 1 (data layer) complete: typed FPL API client with auth and token refresh, fixture
+calendar with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
+availability-flag snapshots, and Kalshi match odds converted to expected goals.
+Next: Phase 2 (Monte Carlo match and player simulations).
 
 ## Setup
 ```bash
@@ -20,7 +20,7 @@ cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID
 ## Usage
 ```bash
 python -m fpl_agent.data          # live read-only check: deadlines, next 6 GWs, H2H opponent,
-                                  # your team with predicted minutes
+                                  # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)
 python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
 ```

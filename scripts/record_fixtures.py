@@ -2,6 +2,7 @@
 
 Input:  data/cache/{bootstrap,fixtures,my_team}.json   (raw API responses, gitignored)
         data/cache/{h2h_matches_gw6,opp_history,opp_picks_gw5,live_gw5}.json
+        data/cache/kalshi_open_KXEPLGAME.json, kalshi_settled_KXEPLTOTAL.json (public market data)
 Output: tests/fixtures/*.json                           (trimmed + anonymized, committed)
 
 Public repo: other managers' names and entry ids (and mine) are replaced with fake ones.
@@ -93,6 +94,9 @@ def main() -> None:
     live = load("live_gw5")
     live_gw5 = {"elements": [e for e in live["elements"] if e["id"] in keep]}
 
+    kalshi = {"markets": load("kalshi_open_KXEPLGAME")["markets"], "cursor": ""}
+    kalshi_totals = {"markets": load("kalshi_settled_KXEPLTOTAL"), "cursor": ""}
+
     OUT.mkdir(parents=True, exist_ok=True)
     for name, obj in (
         ("bootstrap", trimmed_boot),
@@ -102,6 +106,8 @@ def main() -> None:
         ("opp_history", opp_history),
         ("opp_picks", opp_picks),
         ("live_gw5", live_gw5),
+        ("kalshi_markets", kalshi),
+        ("kalshi_totals_settled", kalshi_totals),
     ):
         path = OUT / f"{name}.json"
         path.write_text(json.dumps(obj, indent=1, ensure_ascii=False) + "\n")

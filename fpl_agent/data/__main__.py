@@ -12,7 +12,9 @@ from fpl_agent.auth import AuthError, FileTokenStore, RateLimitedError, TokenMan
 from fpl_agent.config import ConfigError, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
+from fpl_agent.data.kalshi import KalshiClient
 from fpl_agent.data.lineups import load_predictions
+from fpl_agent.data.odds import load_odds
 from fpl_agent.data.opponent import load_opponent
 from fpl_agent.data.snapshots import FileSnapshotStore, record_snapshot
 
@@ -55,6 +57,21 @@ def main() -> int:
             if gw.blank_teams:
                 tags.append("BLANK: " + ",".join(sorted(teams[t] for t in gw.blank_teams)))
             print(f"  GW{gw.id:<2} {len(gw.fixtures):>2} fixtures  {' | '.join(tags) or 'normal'}")
+
+        gw_fixtures = list(cal.get(gw_id).fixtures)
+        odds, skipped = load_odds(KalshiClient(http), gw_fixtures, boot)
+        print(f"Kalshi odds GW{gw_id}: {len(odds)}/{len(gw_fixtures)} fixtures priced")
+        for f in gw_fixtures:
+            o = odds.get(f.id)
+            if o:
+                print(
+                    f"  {teams[f.team_h]} v {teams[f.team_a]:<4} "
+                    f"H/D/A {o.p_home:.2f}/{o.p_draw:.2f}/{o.p_away:.2f}  "
+                    f"xG {o.lambda_home:.2f}-{o.lambda_away:.2f}  "
+                    f"total from {o.total_source}, draw gap {o.draw_gap:+.3f}"
+                )
+        for event, reason in sorted(skipped.items()):
+            print(f"  skipped {event}: {reason}")
 
         if settings.h2h_league_id:
             snap = load_opponent(client, settings.h2h_league_id, settings.entry_id, gw_id)
