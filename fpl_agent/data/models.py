@@ -73,6 +73,8 @@ class Player(FplModel):
     goals_scored: int  # season totals, as FPL scores them
     assists: int
     own_goals: int
+    defensive_contribution: int  # season total CBIT (DEF) / CBIRT (MID, FWD) count
+    saves: int  # season total
     expected_goals_conceded: float  # xG conceded while he was on the pitch, season total
 
 

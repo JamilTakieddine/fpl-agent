@@ -722,6 +722,58 @@ FWD **1.02** (total 10.97), against actual averages of 1.00 / 4.29 / 4.69 / 1.02
 
 ---
 
+## D21. Defensive events: exact conceded-while-on-the-pitch, player-level DEFCON with light shrinkage, saves by opponent attack
+
+*Phase 2 step 4, 2026-09-29*
+
+**Context.** `game_config.scoring` gives point values, but **no thresholds** anywhere in the API. Verified against
+how FPL actually awarded points in GW1–5 (the `explain` breakdown):
+- The DEFCON count is CBIT (DEF) / CBIRT (MID, FWD): matched in 100% of player-matches.
+- Thresholds are **10 / 12**: defenders awarded from 10, never at 9; midfielders from 12, never at 11.
+- Saves: **1 point per 3** (100/100). Goals conceded: **−1 per 2** (633/633).
+- Clean sheet = **0 conceded while on the pitch and 60+ minutes** (633/633).
+
+Hit rates at 90 minutes: DEF 31%, MID 20%, FWD 2%. Goalkeepers average 2.9 saves per full match, weakly
+correlated with goals conceded (+0.10).
+
+**Decisions** (`fpl_agent/model/defence.py`, thresholds in `fpl_agent/model/scoring_rules.py`):
+- **Step 3 now keeps every goal's minute**, own goals included. A player's goals conceded are the opponent goals
+  inside his time on the pitch, so a defender subbed off at 70 keeps his clean sheet if the goal comes at 80.
+- **DEFCON:** a Poisson count at the player's own rate × minutes / 90, awarded once at the threshold. Not
+  scaled by the opponent yet (unmeasured).
+- **Saves:** Poisson at the keeper's rate × (opponent expected goals ÷ league average) × minutes / 90, drawn
+  independently of goals conceded.
+
+**Finding: shrinkage hurts DEFCON.** With 270-minute shrinkage, the simulated hit rates were 26/15/0% against
+the real 31/20/2%. Tested **out of sample** (rates from GW1–4 predicting GW5 threshold hits, 118 appearances):
+
+| Shrinkage | Log-likelihood |
+|---|---|
+| none | −0.442 |
+| 45 min | −0.450 |
+| 90 min | −0.458 |
+| 270 min | −0.483 |
+
+Less is strictly better. Defensive-action rate is a **stable trait of a player's role**, and the position
+average mixes very different roles (center-backs and full-backs). DEFCON therefore uses **45 minutes**: nearly
+as good as none, and still a guard against cameo-only samples. Simulated hit rates are now **29/18/1%**.
+(In-sample, unshrunk Poisson reproduces 30.9/19.1/1.3% against the actual 30.7/19.9/1.9%, so the Poisson
+shape itself is fine.)
+
+**Alternatives.**
+- *Full-match result for clean sheets.* Wrong for players subbed off before or brought on after a goal.
+- *Position-level DEFCON rates.* They erase exactly the differences between players that DEFCON rewards.
+- *A shots-on-target model for saves.* Not justified by a +0.10 correlation.
+- *Hardcoding thresholds unverified.* The API doesn't expose them, so each one was checked against real
+  scoring.
+
+**Consequences.**
+- The attacking model's 270-minute shrinkage and the saves shrinkage haven't been tested out of sample. The
+  same test is now on the validation list.
+- Re-verify the thresholds each season.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -811,3 +863,9 @@ go to the other defenders.
 Alternatives: drop the surprise factor (ignores measured risk, and still misses the replacements), or a full
 team-sheet model that forces exactly 11 in every simulation (it also captures who-replaces-whom
 correlation, but it's heavier; possibly later).
+
+**Q5. Should the H2H objective require winning by a buffer?** *(User idea, 2026-09-29, for Phase 3.)*
+Aim to beat the opponent by a margin of **3–5 points**, deliberately small so the model's outputs are still
+trusted. With simulated gameweeks this is one parameter: maximize P(my points − opponent's points ≥ buffer)
+instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
+win probability each buffer size costs.

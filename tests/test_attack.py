@@ -165,3 +165,13 @@ def test_event_rates_from_season_data(base: Player) -> None:
 def test_defaults_before_any_match(base: Player) -> None:
     r = attack_rates([make(base, 1, 4, 0, 0.0, 0.0, 0)], [])
     assert (r.own_goal_share, r.assist_rate) == (0.05, 0.9)
+
+
+def test_goal_minutes_are_kept_including_own_goals() -> None:
+    ms = minutes_rows([(1, 0, 90)])
+    att = run(ms, 2, rates({1: 1.0}, {1: 0.0}, og=1.0), TEAMS)  # every goal an own goal
+    times = att.goal_minutes[(1, 1)]
+    assert times.shape == (2, N)
+    assert np.isfinite(times).all() and ((times >= 0) & (times < 90)).all()
+    assert att.goals.sum() == 0  # nobody credited, but the other side concedes them
+    assert (att.goal_minutes[(1, 2)].shape[0]) == 0  # the away side scored nothing

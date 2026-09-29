@@ -8,9 +8,9 @@ Status:
   with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
   availability-flag snapshots, and Kalshi match odds converted to expected goals.
 - **Phase 2 (Monte Carlo simulations): in progress.** Done: scorelines from odds (live Kalshi → saved
-  Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, and attacking events
-  (goals and assists given the scoreline). Next: defensive events (clean sheets, goals conceded, saves,
-  DEFCON).
+  Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
+  (goals and assists given the scoreline), and defensive events (clean sheets, goals conceded, saves,
+  DEFCON). Next: turning events into FPL points.
 
 ## Setup
 ```bash
