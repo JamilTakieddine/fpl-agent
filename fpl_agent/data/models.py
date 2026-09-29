@@ -90,10 +90,22 @@ class ChipDefinition(FplModel):
     stop_event: int
 
 
+class GameRules(FplModel):
+    """The squad and transfer rules FPL publishes in game_config.rules (read, never hardcoded)."""
+
+    squad_squadplay: int  # starters (11)
+    squad_squadsize: int  # squad size (15)
+    squad_team_limit: int  # max players from one club (3, rule 6)
+    squad_total_spend: int  # starting budget in tenths (1000 = 100.0m)
+    max_extra_free_transfers: int  # banked on top of the weekly one (4, so 5 in total, rule 1)
+    transfers_sell_on_fee: float  # share of a price rise kept by FPL when selling (0.5, rule 5)
+
+
 class GameConfig(FplModel):
     # Each value is either a flat number or a per-position table, e.g.
     # goals_scored: {"GKP": 10, "DEF": 6, "MID": 5, "FWD": 4}. Read, never hardcode (rule 8).
     scoring: dict[str, int | dict[str, int]]
+    rules: GameRules
 
 
 class Bootstrap(FplModel):

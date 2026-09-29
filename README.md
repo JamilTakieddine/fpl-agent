@@ -11,7 +11,9 @@ Status:
   ratings, Dixon-Coles from the market's draw price), minutes, attacking and defensive events, bonus, and
   FPL points, validated against 2025/26 and early 2026/27: it beats form-based benchmarks on accuracy
   and ranking, with honest probabilities (`docs/validation.md`).
-- **Next: Phase 3**, the optimizer (lineup, captain, bench, transfers, chips) for H2H win probability.
+- **Phase 3 (optimizer): in progress.** Part 1 done: the FPL rules engine, which reproduces FPL's own
+  auto-subs and official points for every real team-gameweek tested. Next: scoring teams inside the
+  simulations, then the opponent model and the lineup/captain optimizer.
 
 ## Setup
 ```bash
