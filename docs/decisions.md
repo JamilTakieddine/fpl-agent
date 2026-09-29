@@ -975,6 +975,46 @@ expected points.
 
 ---
 
+## D26. Validation report: likely starters, decision-level checks, one source for markdown and HTML
+
+*Phase 2 step 7c, 2026-09-29. Full numbers: `docs/validation.md`.*
+
+**Decisions** (`fpl_agent/validation/report.py`, `python -m fpl_agent.validation --report`):
+- **Report on *likely starters*** (given ≥ 50% to start *before* the gameweek) as well as everyone. That's the pool
+  you actually pick from, and reserves on 0 points flatter every all-player number.
+- **Decision-level checks**, the closest thing to what the agent will do. From the same pool of likely starters
+  with history each gameweek:
+  - the actual points of the model's top 10 vs points-per-game's top 10;
+  - the actual doubled points of each one's captain pick.
+- **Per position, calibration curves for every event, points reliability by predicted-points bin**, and scoreline
+  calibration including the draw rate.
+- **One `report.json` feeds both `docs/validation.md` (committed) and the HTML page (published, private)**, so they
+  can't disagree. Both regenerate with one command after any future back-test. The HTML uses hand-drawn SVG
+  charts (no library), every chart has a table view, and colors meet 3:1 contrast in both themes (the model in
+  blue, the benchmarks in greys).
+
+**Findings (2025/26):**
+- **Likely starters:** error **2.31** vs 2.57 (points per game) vs 2.75 (form); ranking **0.288** vs 0.176 vs 0.152,
+  about 1.6× better. The model's ranking beats points-per-game at every position.
+- **Top 10:** 5.19 vs 4.10 actual points each (+27%), better in **28 of 37** gameweeks.
+- **Captain:** 12.70 vs 11.95 doubled points a gameweek, **+28 points** over the season.
+- **Draws are under-predicted: 23.0% vs 27.3%** (370 matches, about 2 standard errors). This is the Poisson draw bias
+  D15 was waiting on, and it argues for Dixon-Coles.
+- **Teams expected to score 1.6+ scored about 0.2 fewer.** Together with the draws, that's the +3.8% goals.
+- **DEFCON about 10% low in both seasons; a slight optimism on starting defenders** (+0.16).
+- **The PIT is flat for likely starters too** (0.09–0.11).
+- **Held out (4 GWs):** better at every level; goalkeepers look off (−0.52 bias, n = 79), too few to act on.
+
+**Alternatives.**
+- *All-player numbers only.* Flattered by reserves.
+- *A charting library.* Unnecessary for three chart types, and a dependency on a CDN.
+- *Hand-written report prose.* Goes stale; generated text stays consistent with the data.
+
+**Next (7d):** a Dixon-Coles or total-goals adjustment, DEFCON calibration, and the untested shrinkage strengths.
+Each change is judged by re-running this back-test.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
