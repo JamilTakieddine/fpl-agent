@@ -20,6 +20,7 @@ total_points for every 2025/26 player-match.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -67,6 +68,12 @@ _STAT_FIELDS = (
 )
 
 
+# (target gameweek, its fixtures, the rebuilt bootstrap, its deadline) -> (odds, unpriced ids)
+OddsSource = Callable[
+    [int, list[Fixture], Bootstrap, datetime], tuple[dict[int, MatchOdds], list[int]]
+]
+
+
 @dataclass(frozen=True)
 class Season:
     name: str
@@ -74,21 +81,54 @@ class Season:
     teams: list[Team]
     fixtures: list[Fixture]
     player_types: dict[int, int]
-    closing_odds: list[ClosingOdds]
+    odds_source: OddsSource  # closing odds (2025/26) or rebuilt Kalshi prices (2026/27)
     template: Bootstrap  # element_types, chips and game_config (scoring) to reuse
+    deadlines: dict[int, datetime] | None = None  # real deadlines if known, else approximated
+
+
+def closing_odds_source(season_teams: list[Team], closing: list[ClosingOdds]) -> OddsSource:
+    team_ids = {t.name: t.id for t in season_teams}
+
+    def fpl_id(name: str) -> int:
+        return team_ids[FOOTBALL_DATA_TO_FPL.get(name, name)]
+
+    def source(
+        target: int, fixtures: list[Fixture], bootstrap: Bootstrap, deadline: datetime
+    ) -> tuple[dict[int, MatchOdds], list[int]]:
+        odds, unpriced = {}, []
+        for f in fixtures:
+            match = next(
+                (
+                    o
+                    for o in closing
+                    if fpl_id(o.home) == f.team_h
+                    and fpl_id(o.away) == f.team_a
+                    and f.kickoff_time is not None
+                    and abs(o.day.date() - f.kickoff_time.date()) <= ODDS_DATE_TOLERANCE
+                ),
+                None,
+            )
+            if match is None:
+                unpriced.append(f.id)
+            else:
+                odds[f.id] = closing_to_match_odds(f, match)
+        return odds, unpriced
+
+    return source
 
 
 def load_season(name: str, template: Bootstrap) -> Season:
     by_gw: dict[int, list[HistoricalRow]] = defaultdict(list)
     for r in load_rows(name):
         by_gw[r.GW].append(r)
+    teams = load_teams(name)
     return Season(
         name=name,
         rows_by_gw=dict(by_gw),
-        teams=load_teams(name),
+        teams=teams,
         fixtures=load_fixtures(name),
         player_types=load_player_types(name),
-        closing_odds=load_closing_odds(name),
+        odds_source=closing_odds_source(teams, load_closing_odds(name)),
         template=template,
     )
 
@@ -114,11 +154,12 @@ def _events(season: Season, target: int) -> list[Event]:
             k = first_kickoff.get(f.event)
             if k is None or f.kickoff_time < k:
                 first_kickoff[f.event] = f.kickoff_time
+    known = season.deadlines or {}
     return [
         Event(
             id=gw,
             name=f"Gameweek {gw}",
-            deadline_time=kickoff - DEADLINE_BEFORE_FIRST_KICKOFF,
+            deadline_time=known.get(gw, kickoff - DEADLINE_BEFORE_FIRST_KICKOFF),
             finished=gw < target,
             is_previous=gw == target - 1,
             is_current=gw == target - 1,
@@ -185,7 +226,8 @@ def _players(season: Season, target: int) -> list[Player]:
                 yellow_cards=int(t["yellow_cards"]),
                 red_cards=int(t["red_cards"]),
                 penalties_saved=int(t["penalties_saved"]),
-                ep_next=sum(r.xP for r in rows),  # FPL's own pre-gameweek estimate (a benchmark)
+                # FPL's own pre-gameweek estimate (a benchmark); unknown for the live season
+                ep_next=None if any(r.xP is None for r in rows) else sum(r.xP or 0.0 for r in rows),
             )
         )
     return players
@@ -256,32 +298,6 @@ def closing_to_match_odds(fixture: Fixture, o: ClosingOdds) -> MatchOdds:
     )
 
 
-def _odds_for(season: Season, fixtures: list[Fixture]) -> tuple[dict[int, MatchOdds], list[int]]:
-    team_ids = {t.name: t.id for t in season.teams}
-
-    def fpl_id(name: str) -> int:
-        return team_ids[FOOTBALL_DATA_TO_FPL.get(name, name)]
-
-    odds, unpriced = {}, []
-    for f in fixtures:
-        match = next(
-            (
-                o
-                for o in season.closing_odds
-                if fpl_id(o.home) == f.team_h
-                and fpl_id(o.away) == f.team_a
-                and f.kickoff_time is not None
-                and abs(o.day.date() - f.kickoff_time.date()) <= ODDS_DATE_TOLERANCE
-            ),
-            None,
-        )
-        if match is None:
-            unpriced.append(f.id)
-        else:
-            odds[f.id] = closing_to_match_odds(f, match)
-    return odds, unpriced
-
-
 def build_case(season: Season, target: int, window: int = WINDOW_GWS) -> GameweekCase:
     fixtures = _fixtures_as_of(season, target)
     bootstrap = Bootstrap(
@@ -298,7 +314,8 @@ def build_case(season: Season, target: int, window: int = WINDOW_GWS) -> Gamewee
         for gw in window_events(target, window)
         if gw in season.rows_by_gw
     }
-    odds, unpriced = _odds_for(season, list(calendar.get(target).fixtures))
+    gw = calendar.get(target)
+    odds, unpriced = season.odds_source(target, list(gw.fixtures), bootstrap, gw.deadline)
     return GameweekCase(
         event=target,
         bootstrap=bootstrap,

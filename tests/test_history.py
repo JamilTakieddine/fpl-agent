@@ -12,16 +12,18 @@ from typing import Any
 import pytest
 
 from fpl_agent.data.lineups import predict_all
-from fpl_agent.data.models import Bootstrap
+from fpl_agent.data.models import Bootstrap, Fixture
 from fpl_agent.data.odds import outcome_probs, p_over
 from fpl_agent.model.gameweek import simulate_gameweek
 from fpl_agent.validation import history
+from fpl_agent.validation.backtest import load, run_gameweek, save
 from fpl_agent.validation.checks import (
     leaks,
     points_from_stats,
     score_mismatches,
     scoring_mismatches,
 )
+from fpl_agent.validation.current_season import rows_from_live
 from fpl_agent.validation.history import (
     ClosingOdds,
     dedupe_rows,
@@ -33,9 +35,10 @@ from fpl_agent.validation.pointintime import (
     DEADLINE_BEFORE_FIRST_KICKOFF,
     Season,
     build_case,
+    closing_odds_source,
     closing_to_match_odds,
 )
-from tests.conftest import fx
+from tests.conftest import fx, load_fixture
 
 SEASON = "2099-00"
 KICKOFF = [datetime(2099, 8, 15 + 7 * (gw - 1), 15, 0, tzinfo=UTC) for gw in (1, 2, 3)]
@@ -171,16 +174,17 @@ def season(tmp_path: Path, bootstrap_json: Any) -> Season:
         ],
     )
     template = Bootstrap.model_validate(bootstrap_json)
+    teams = history.load_teams(SEASON, tmp_path)
     by_gw: dict[int, list[Any]] = {}
     for r in history.load_rows(SEASON, tmp_path):
         by_gw.setdefault(r.GW, []).append(r)
     return Season(
         name=SEASON,
         rows_by_gw=by_gw,
-        teams=history.load_teams(SEASON, tmp_path),
+        teams=teams,
         fixtures=history.load_fixtures(SEASON, tmp_path),
         player_types=history.load_player_types(SEASON, tmp_path),
-        closing_odds=history.load_closing_odds(SEASON, tmp_path),
+        odds_source=closing_odds_source(teams, history.load_closing_odds(SEASON, tmp_path)),
         template=template,
     )
 
@@ -290,3 +294,64 @@ def test_simulation_runs_on_a_rebuilt_gameweek(season: Season) -> None:
     )
     assert {r.source for r in sim.rates.values()} == {"kalshi-totals"}
     assert set(sim.points.player) == {1, 2}
+
+
+# --- 7b: back-test runner and current-season conversion ---------------------------------------
+
+
+def test_backtest_gameweek_records(season: Season, tmp_path: Path) -> None:
+    rec = run_gameweek(season, 3, n_sims=300)
+    assert len(rec.matches) == 1 and rec.matches[0].home_goals == 1
+    assert {r.player for r in rec.rows} == {1, 2}
+    saka = next(p for p in rec.points if p.player == 1)
+    assert saka.points == 2  # from the CSV
+    assert saka.ppg == pytest.approx(2.0) and saka.form3 == pytest.approx(2.0)  # GW1-2 only
+    assert saka.fpl_xp == pytest.approx(2.5)
+    assert all(0.0 <= p.pit <= 1.0 for p in rec.points)
+    row = next(r for r in rec.rows if r.player == 1)
+    assert 0.0 <= row.p_start <= 1.0 and row.started == 1
+
+    save(rec, "unit", tmp_path)
+    again = load("unit", tmp_path)
+    assert again == rec
+
+
+def test_rows_from_live_skip_ambiguous_transfers(bootstrap_json: Any) -> None:
+    boot = Bootstrap.model_validate(bootstrap_json)
+    fixture = Fixture.model_validate(load_fixture("fixtures")[0])
+    player = boot.elements[0]
+    other = next(t.id for t in boot.teams if t.id not in (fixture.team_h, fixture.team_a))
+    moved = boot.model_copy(update={"elements": [player.model_copy(update={"team": other})]})
+    stats = dict.fromkeys(
+        (
+            "minutes",
+            "starts",
+            "goals_scored",
+            "assists",
+            "clean_sheets",
+            "goals_conceded",
+            "saves",
+            "penalties_saved",
+            "penalties_missed",
+            "yellow_cards",
+            "red_cards",
+            "own_goals",
+            "defensive_contribution",
+            "bps",
+            "bonus",
+            "total_points",
+        ),
+        0,
+    ) | {"expected_goals": "0.1", "expected_assists": "0.0", "expected_goals_conceded": "0.5"}
+    live = {
+        "elements": [
+            {"id": player.id, "stats": stats, "explain": [{"fixture": fixture.id, "stats": []}]}
+        ]
+    }
+    home = boot.model_copy(
+        update={"elements": [player.model_copy(update={"team": fixture.team_h})]}
+    )
+    rows, skipped = rows_from_live(1, live, home, [fixture])
+    assert skipped == 0 and rows[0].was_home and rows[0].xP is None
+    rows, skipped = rows_from_live(1, live, moved, [fixture])
+    assert (rows, skipped) == ([], 1)

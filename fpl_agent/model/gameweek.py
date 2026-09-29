@@ -18,15 +18,16 @@ from fpl_agent.data.lineups import LineupPrediction
 from fpl_agent.data.models import Bootstrap, EventLive, Fixture, PositionCode
 from fpl_agent.data.odds import MatchOdds
 from fpl_agent.data.odds_store import SavedOdds
-from fpl_agent.model.attack import attack_rates, simulate_attack
-from fpl_agent.model.bonus import fit_bps_model, simulate_bonus
-from fpl_agent.model.defence import defence_rates, simulate_defence
-from fpl_agent.model.discipline import discipline_rates, simulate_discipline
-from fpl_agent.model.minutes import minutes_distributions, simulate_minutes
+from fpl_agent.model.attack import AttackSamples, attack_rates, simulate_attack
+from fpl_agent.model.bonus import BonusSamples, fit_bps_model, simulate_bonus
+from fpl_agent.model.defence import DefenceSamples, defence_rates, simulate_defence
+from fpl_agent.model.discipline import DisciplineSamples, discipline_rates, simulate_discipline
+from fpl_agent.model.minutes import MinutesSamples, minutes_distributions, simulate_minutes
 from fpl_agent.model.points import PointsSamples, compute_points
 from fpl_agent.model.scoreline import (
     DEFAULT_SIMS,
     FixtureRates,
+    ScoreSamples,
     fit_ratings,
     fixture_rates,
     simulate_scores,
@@ -34,10 +35,23 @@ from fpl_agent.model.scoreline import (
 
 
 @dataclass(frozen=True)
+class SimulationSamples:
+    """The raw per-step samples, kept only on request (validation needs per-event probabilities)."""
+
+    scores: dict[int, ScoreSamples]
+    minutes: MinutesSamples
+    attack: AttackSamples
+    defence: DefenceSamples
+    discipline: DisciplineSamples
+    bonus: BonusSamples
+
+
+@dataclass(frozen=True)
 class GameweekSimulation:
     event: int
     rates: dict[int, FixtureRates]  # per fixture: expected goals and where they came from
     points: PointsSamples
+    samples: SimulationSamples | None = None  # only with keep_samples=True
 
 
 def simulate_gameweek(
@@ -51,6 +65,7 @@ def simulate_gameweek(
     saved_odds: Mapping[int, SavedOdds] | None = None,
     n_sims: int = DEFAULT_SIMS,
     seed: int = 0,
+    keep_samples: bool = False,
 ) -> GameweekSimulation:
     players = bootstrap.elements
     positions: dict[int, PositionCode] = {
@@ -96,4 +111,9 @@ def simulate_gameweek(
         rng,
     )
     points = compute_points(bootstrap, positions, minutes, attack, defence, discipline, bonus)
-    return GameweekSimulation(event=event, rates=rates, points=points)
+    samples = (
+        SimulationSamples(scores, minutes, attack, defence, discipline, bonus)
+        if keep_samples
+        else None
+    )
+    return GameweekSimulation(event=event, rates=rates, points=points, samples=samples)
