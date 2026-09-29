@@ -11,8 +11,8 @@ Status:
   Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
   (goals and assists given the scoreline), defensive events (clean sheets, goals conceded, saves,
   DEFCON), bonus points from a fitted BPS model, and FPL points per player per simulation. Now:
-  validation, back-testing against real gameweeks (7a done: last season's data, rebuilt without
-  peeking and verified).
+  validation, back-testing against real gameweeks (7a: data rebuilt without peeking and verified;
+  7b: runner and first results, beating form-based benchmarks in both seasons).
 
 ## Setup
 ```bash
@@ -32,6 +32,8 @@ pytest                            # tests (no network; uses tests/fixtures/)
 python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
 python scripts/fetch_history.py   # download last season's archives for back-testing (gitignored)
 python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
+python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
+python -m fpl_agent.validation    # back-test both seasons: per-step metrics vs benchmarks
 ```
 
 ## Phase 0

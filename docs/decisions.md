@@ -925,6 +925,56 @@ expected points.
 
 ---
 
+## D25. Back-test runner, held-out current season, and first results
+
+*Phase 2 step 7b, 2026-09-29*
+
+**Decisions.**
+- **The held-out season (2026/27 GW2–5)** is rebuilt from FPL's own cached live data. **Odds are Kalshi prices
+  as they stood 60 minutes before each gameweek's deadline**, when the live agent reads them (D12). They're
+  rebuilt from hourly candles (`scripts/fetch_kalshi_history.py`, 503 markets cached) and passed through the
+  same `build_odds` pipeline and quality gate as live runs. That's *more* realistic than 2025/26's closing odds,
+  which are set after the deadline.
+  - Players who have since transferred can't be placed on a side, so those rows are skipped: 25 of about 3,200.
+  - Scoring is reproduced for 3,191 / 3,191 player-matches, and 50 / 50 scores reconcile.
+- **Seasons take a pluggable odds source** (closing odds or rebuilt Kalshi prices) and real deadlines when known.
+- **Runner (`validation/backtest.py`):** for each gameweek it rebuilds inputs, predicts lineups, and simulates
+  with `keep_samples=True` (2,000 simulations; about 1s per gameweek). It saves per-match, per-player-match and
+  per-player-gameweek records as JSONL for 7c and 7d.
+- **Benchmarks** are computed without peeking: points per appearance so far, and the average of the last three
+  appearances.
+- **FPL's archived `xP` is dropped as a benchmark.** It's missing in 27 of 38 gameweeks (0.00 for everyone,
+  Haaland's 13-point GW10 included). Where present, it correlates **0.74–0.83** with actual points from GW2 on,
+  far above what pre-gameweek forecasts achieve, so it was almost certainly recorded *after* the matches. Only
+  GW1 (+0.40) looks genuine.
+- **The PIT uses the randomized version for whole-number points.** A fixed midpoint put every certain 0 at 0.5,
+  which made 53% of values land in the middle bin.
+
+**First results** (`python -m fpl_agent.validation`, about 45s):
+
+| | 2025/26 (37 GWs) | 2026/27 held out (4 GWs) |
+|---|---|---|
+| 1X2 Brier (coin flip 0.667) | 0.612 | 0.658 (40 matches) |
+| Goals predicted / actual | 1,060 / 1,021 (+3.8%) | 116 / 111 |
+| Start: predicted / actual, skill | 0.280 / 0.280, +0.52 | 0.337 / 0.338, +0.57 |
+| DEFCON predicted / actual | 0.049 / **0.054** | 0.052 / 0.057 |
+| Points bias | −0.006 | −0.047 |
+| MAE / rank vs points-per-game (same rows) | **1.64 / 0.54** vs 2.15 / 0.39 | **1.95 / 0.44** vs 2.32 / 0.34 |
+| P(6+) / P(10+) predicted vs actual | 7.1% / 1.9% vs 7.0% / 1.8% | 8.6% / 2.3% vs 8.7% / 2.2% |
+| PIT histogram (honest = 0.10 per bin) | 0.09–0.11 | 0.08–0.14 (top bin 0.14) |
+
+**Reading.**
+- **The model beats both "just use form" benchmarks on accuracy and on ranking, in both seasons.**
+- **Probabilities are right on average for every event** except DEFCON, which is about 10% low, as in D21.
+- **The distributions are honest** (the PIT is flat).
+- **To look at in 7d:** goals slightly over-predicted, DEFCON low, and the held-out top PIT bin.
+- **Limitation:** no historical flags, so availability is understated relative to live runs.
+
+**Answers Q3's open measurement.** Kalshi priced **40 / 40** GW2–5 fixtures 60 minutes before the deadline, and
+**33** had a usable totals line.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

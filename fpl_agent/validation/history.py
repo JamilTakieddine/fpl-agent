@@ -83,7 +83,7 @@ class HistoricalRow(BaseModel):
     bps: int
     bonus: int
     total_points: int
-    xP: float  # FPL's own expected points, published before the gameweek
+    xP: float | None = None  # FPL's own pre-gameweek expected points (archive only)
     value: int  # price in tenths
 
     @property

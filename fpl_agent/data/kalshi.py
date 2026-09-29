@@ -61,6 +61,29 @@ def match_code(event_ticker: str) -> str:
     return event_ticker.split("-", 1)[1] if "-" in event_ticker else event_ticker
 
 
+class _Quote(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    close_dollars: float | None = None
+
+
+class Candle(BaseModel):
+    """One period of a market's price history: bid/ask at the period's close, volume within it."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    end_period_ts: int
+    yes_bid: _Quote = _Quote()
+    yes_ask: _Quote = _Quote()
+    volume_fp: float | None = None
+
+
+class _CandlesPage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    candlesticks: list[Candle]
+
+
 class _MarketsPage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -80,10 +103,14 @@ class KalshiClient:
 
     def open_match_markets(self, series: str = MATCH_SERIES) -> list[KalshiMarket]:
         """Every open market in the series in one paginated query (not one call per match)."""
+        return self.markets(series, "open")
+
+    def markets(self, series: str, status: str) -> list[KalshiMarket]:
+        """Every market in the series with this status ("open", "settled"), following pages."""
         markets: list[KalshiMarket] = []
         cursor = ""
         for _ in range(MAX_PAGES):
-            path = f"/markets?series_ticker={series}&status=open&limit=200"
+            path = f"/markets?series_ticker={series}&status={status}&limit=200"
             if cursor:
                 path += f"&cursor={cursor}"
             page = _MarketsPage.model_validate(self._get(path))
@@ -92,3 +119,13 @@ class KalshiClient:
                 return markets
             cursor = page.cursor
         raise RuntimeError(f"Kalshi series {series} has more than {MAX_PAGES} pages")
+
+    def candlesticks(
+        self, series: str, ticker: str, start_ts: int, end_ts: int, period_minutes: int = 60
+    ) -> list[Candle]:
+        """Price history for one market (used to rebuild past pre-match prices, D25)."""
+        path = (
+            f"/series/{series}/markets/{ticker}/candlesticks"
+            f"?start_ts={start_ts}&end_ts={end_ts}&period_interval={period_minutes}"
+        )
+        return _CandlesPage.model_validate(self._get(path)).candlesticks
