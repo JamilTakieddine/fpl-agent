@@ -254,6 +254,19 @@ class ExplainFixture(FplModel):
 class LiveStats(FplModel):
     minutes: int  # summed over the gameweek (can exceed 90 in a double gameweek)
     starts: int  # likewise, 0-2
+    # Per-gameweek event counts and BPS (used to fit the bonus model, D23). Defaults keep older
+    # recordings and hand-built test data valid.
+    goals_scored: int = 0
+    assists: int = 0
+    clean_sheets: int = 0
+    goals_conceded: int = 0
+    saves: int = 0
+    penalties_saved: int = 0
+    yellow_cards: int = 0
+    red_cards: int = 0
+    defensive_contribution: int = 0
+    bps: int = 0
+    bonus: int = 0
 
 
 class LiveElement(FplModel):

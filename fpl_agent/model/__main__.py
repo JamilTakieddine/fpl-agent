@@ -89,7 +89,6 @@ def main() -> int:
             f"  {positions[pid]} {names[pid]:<16} {pts.mean():5.2f}   {np.mean(pts <= 1):6.0%}"
             f"     {np.mean(pts >= 6):4.0%}   {np.mean(pts >= 10):4.0%}"
         )
-    print("(bonus points not simulated yet: Phase 2 step 6)")
     return 0
 
 

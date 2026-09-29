@@ -10,7 +10,8 @@ Status:
 - **Phase 2 (Monte Carlo simulations): in progress.** Done: scorelines from odds (live Kalshi → saved
   Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
   (goals and assists given the scoreline), defensive events (clean sheets, goals conceded, saves,
-  DEFCON), and FPL points per player per simulation. Next: bonus points, then validation.
+  DEFCON), bonus points from a fitted BPS model, and FPL points per player per simulation. Next:
+  validation (back-testing against real gameweeks).
 
 ## Setup
 ```bash

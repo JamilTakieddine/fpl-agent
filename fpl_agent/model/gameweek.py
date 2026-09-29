@@ -1,6 +1,6 @@
 """Phase 2 entry point: simulate a whole gameweek from Phase 1 inputs to per-player points.
 
-Runs steps 1-5 in a FIXED order from one seeded Generator, so the same inputs and seed always
+Runs steps 1-6 in a FIXED order from one seeded Generator, so the same inputs and seed always
 give the same samples, and Phase 3 can compare lineups on identical simulated gameweeks.
 Takes already-fetched data (no API client), so it's pure simulation: testable offline and
 cheap to call repeatedly.
@@ -19,6 +19,7 @@ from fpl_agent.data.models import Bootstrap, EventLive, Fixture, PositionCode
 from fpl_agent.data.odds import MatchOdds
 from fpl_agent.data.odds_store import SavedOdds
 from fpl_agent.model.attack import attack_rates, simulate_attack
+from fpl_agent.model.bonus import fit_bps_model, simulate_bonus
 from fpl_agent.model.defence import defence_rates, simulate_defence
 from fpl_agent.model.discipline import discipline_rates, simulate_discipline
 from fpl_agent.model.minutes import minutes_distributions, simulate_minutes
@@ -83,6 +84,16 @@ def simulate_gameweek(
     defence = simulate_defence(  # 4
         attack, minutes, teams, positions, by_id, rates, defence_rates(players, all_fixtures), rng
     )
-    discipline = simulate_discipline(minutes, discipline_rates(players), rng)  # 5a
-    points = compute_points(bootstrap, positions, minutes, attack, defence, discipline)  # 5b
+    discipline = simulate_discipline(minutes, discipline_rates(players), rng)  # 5
+    element_types = {p.id: p.element_type for p in players}
+    bonus = simulate_bonus(  # 6
+        minutes,
+        attack,
+        defence,
+        discipline,
+        element_types,
+        fit_bps_model(lives, element_types),
+        rng,
+    )
+    points = compute_points(bootstrap, positions, minutes, attack, defence, discipline, bonus)
     return GameweekSimulation(event=event, rates=rates, points=points)

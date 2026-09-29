@@ -4,7 +4,7 @@ Point VALUES come from game_config.scoring via Bootstrap.points_for (rule 8); on
 come from scoring_rules.py. Per player-match:
   appearance (short_play 1-59', long_play 60'+), goals, assists, clean sheet, goals conceded
   (per 2, rounded down), saves (per 3, rounded down), DEFCON award, yellow, red, penalty saves.
-Bonus is added in step 6. A double gameweek sums both matches; a blank gameweek is 0.
+plus bonus (step 6). A double gameweek sums both matches; a blank gameweek is 0.
 
 Output (docs/decisions.md D22): a (players x sims) points matrix, which Phase 3 needs in full
 (captaincy doubles a whole distribution, H2H compares totals); whether the player got any
@@ -23,6 +23,7 @@ from numpy.typing import NDArray
 
 from fpl_agent.data.models import Bootstrap, PositionCode
 from fpl_agent.model.attack import AttackSamples
+from fpl_agent.model.bonus import BonusSamples
 from fpl_agent.model.defence import DefenceSamples
 from fpl_agent.model.discipline import DisciplineSamples
 from fpl_agent.model.minutes import MinutesSamples
@@ -42,6 +43,7 @@ COMPONENTS = (
     "defcon",
     "cards",
     "pens_saved",
+    "bonus",
 )
 
 
@@ -69,6 +71,7 @@ def row_components(
     attack: AttackSamples,
     defence: DefenceSamples,
     discipline: DisciplineSamples,
+    bonus: BonusSamples,
 ) -> dict[str, NDArray[np.int64]]:
     """Points per component for every player-match row: each array is (rows, n_sims)."""
     pos = [positions[int(p)] for p in minutes.player]
@@ -91,6 +94,7 @@ def row_components(
         "defcon": defence.defcon_award * value("defensive_contribution"),
         "cards": discipline.yellow * value("yellow_cards") + discipline.red * value("red_cards"),
         "pens_saved": discipline.pens_saved * value("penalties_saved"),
+        "bonus": bonus.bonus * value("bonus"),
     }
 
 
@@ -101,9 +105,10 @@ def compute_points(
     attack: AttackSamples,
     defence: DefenceSamples,
     discipline: DisciplineSamples,
+    bonus: BonusSamples,
 ) -> PointsSamples:
     """Sum components over each player's matches (doubles add up; blanks have no rows)."""
-    comps = row_components(bootstrap, positions, minutes, attack, defence, discipline)
+    comps = row_components(bootstrap, positions, minutes, attack, defence, discipline, bonus)
     players, row_to_player = np.unique(minutes.player, return_inverse=True)
     n_players, n_sims = len(players), minutes.minutes.shape[1]
 

@@ -823,6 +823,58 @@ shape itself is fine.)
 
 ---
 
+## D23. Bonus: BPS fitted from real data, empirical-Bayes base BPS, FPL tie rules
+
+*Phase 2 step 6, 2026-09-29*
+
+**Context.** Bonus is 3/2/1 for the top three BPS per match. BPS weights aren't in the API, and BPS also
+rewards actions we don't simulate (passes, key passes, recoveries). Real GW1–5: 72% of matches handed out 6
+bonus points, 26% handed out 7 and 2% handed out 9 (ties).
+
+**Decisions** (`fpl_agent/model/bonus.py`):
+- **Simulated BPS** = event BPS + base BPS × minutes / 90 + noise, rounded to whole numbers.
+- **Event-BPS weights are fitted by least squares** on real per-match BPS from the window's live data, refitted
+  every run (1,538 player-matches, R² 0.88). Goal FWD/MID/GK-DEF 24.3/20.9/13.9, assist 11.2, clean sheet 12.8,
+  save 2.9, conceded −3.8, 60+ minutes 9.2, and so on. They're fitted rather than taken from FPL's published
+  table because the job is predicting BPS *from the events we simulate*: "60+ minutes" also absorbs regulars'
+  passing BPS. The GW1–5 fit is the fallback when there's too little data.
+- **Base BPS** is each player's average leftover per full match, shrunk toward his position average by
+  **empirical Bayes**: keep = between-player variance / (between + within-player variance / matches). It's
+  computed from the data every run, not picked by hand (the DEFCON lesson). Players without a full match get
+  the position average.
+- **Noise** is Normal(0, within-player SD × √(minutes / 90)).
+- **Competition ranking** (rank = 1 + number of players with strictly higher BPS; 1→3, 2→2, 3→1) reproduces
+  FPL's tie rules exactly. Only players who played are ranked, and each match of a double gameweek is ranked
+  separately.
+- **Bonus is a points component**, × `scoring.bonus`.
+
+**Checks.**
+- **Bonus handed out per match:** 6.34 simulated vs 6.32 actual, so the tie frequency is right.
+- **Share by position (sim / actual):** GK 9/9%, DEF 28/31%, MID 45/44%, FWD 17/17%.
+- **Out of sample** (fit GW1–4, predict each player's GW5 base BPS, 191 appearances), error by share of the
+  player's own average kept:
+
+  | Keep | 0 | 0.25 | 0.5 | 0.75 | 1 |
+  |---|---|---|---|---|---|
+  | Error | 24.6 | **23.6** | 24.0 | 25.8 | 29.1 |
+
+  The empirical-Bayes estimate keeps a median of **0.48** for players with 3+ full matches, which is in the
+  good zone and far better than either extreme. Player-specific base BPS is a modest gain (about 4%).
+- **A heavy tail in match noise** (mean within-player variance 18.5, median 10.8) makes the shrinkage
+  stronger, which the out-of-sample test favors, so it's kept. An early "median keep factor 0.0" came only
+  from counting the ~360 players with no full matches.
+
+**Alternatives.**
+- *FPL's published BPS table.* Unverifiable from the API, and worse at predicting from simulated events.
+- *A fixed shrinkage strength.* Untested guesses already failed once (D21).
+- *No base BPS (position averages only).* About 4% worse out of sample.
+- *Full BPS simulation (passes and so on).* A lot of machinery for the part the base term already captures.
+
+**Effect.** Bonus lifts the attackers most: Fernandes 4.53 → 5.20, Haaland 4.38 → 5.16, Mbeumo 4.49 → 5.11
+expected points.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
