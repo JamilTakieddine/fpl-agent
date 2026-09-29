@@ -1,0 +1,418 @@
+<title>FPL Agent Back-test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --model: #2a78d6;
+    --ppg: #52514e;
+    --form: #898781;
+    --good: #006300;
+    --watch: #a15c00;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --ring: rgba(255, 255, 255, 0.10);
+      --model: #3987e5;
+      --ppg: #c3c2b7;
+      --form: #898781;
+      --good: #0ca30c;
+      --watch: #eda100;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --model: #3987e5;
+    --ppg: #c3c2b7;
+    --form: #898781;
+    --good: #0ca30c;
+    --watch: #eda100;
+  }
+  body { background: var(--page); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: flex; flex-direction: column; gap: 44px; }
+  header { display: flex; flex-direction: column; gap: 10px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(28px, 4.2vw, 40px); line-height: 1.12; font-weight: 600; margin: 0; text-wrap: balance; }
+  h2 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+  h3 { font-size: 15px; font-weight: 600; margin: 0; }
+  p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+  p.lede { font-size: 17px; color: var(--ink); }
+  section { display: flex; flex-direction: column; gap: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+  .tile .value { font-size: 30px; font-weight: 600; line-height: 1.1; }
+  .tile .value small { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .tile .label { font-size: 13px; color: var(--ink-2); }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 8px; }
+  figcaption { display: flex; flex-direction: column; gap: 2px; }
+  figcaption .sub { font-size: 12.5px; color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font-family: var(--sans); font-size: 11px; fill: var(--muted); }
+  svg .val { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg .axisline { stroke: var(--axis); stroke-width: 1; }
+  svg .ideal { stroke: var(--axis); stroke-width: 1.5; }
+  svg .ref { stroke: var(--muted); stroke-width: 1; }
+  svg .m-model { fill: var(--model); }
+  svg .m-ppg { fill: var(--ppg); }
+  svg .m-form { fill: var(--form); }
+  svg .dot { fill: var(--model); stroke: var(--surface); stroke-width: 2; }
+  svg .hit { fill: transparent; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  details { font-size: 13px; color: var(--ink-2); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  details summary:focus-visible { outline: 2px solid var(--model); outline-offset: 2px; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  td:first-child { font-family: var(--sans); }
+  .win { color: var(--good); font-weight: 500; }
+  .findings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 640px) { .findings { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .finding { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .pill { align-self: flex-start; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.good { color: var(--good); }
+  .pill.watch { color: var(--watch); }
+  .finding p { font-size: 14px; }
+  ul { margin: 0; padding-left: 18px; color: var(--ink-2); max-width: 70ch; display: flex; flex-direction: column; gap: 6px; }
+  #tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--page); font-family: var(--mono); font-size: 12px; padding: 6px 8px; border-radius: 6px; max-width: 260px; z-index: 10; }
+  @media (prefers-reduced-motion: no-preference) { figure { transition: border-color 0.2s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">FPL Agent · Phase 2 validation · <span id="gen"></span></div>
+    <h1>Does the simulation beat “just use form”?</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <section aria-labelledby="h-verdict">
+    <h2 id="h-verdict">Verdict</h2>
+    <div class="tiles" id="tiles"></div>
+    <p>Likely starters are players the model gave at least a 50% chance to start before the gameweek: the pool you actually pick from. Reserves who score 0 are easy to predict and would flatter every number.</p>
+  </section>
+
+  <section aria-labelledby="h-bench">
+    <h2 id="h-bench">Against the benchmarks</h2>
+    <p>Each prediction is compared on the same player-gameweeks as two simple rules: points per appearance so far, and the average of the last three appearances. Error is the average gap between predicted and actual points (lower is better). Ranking is how well the order of players within a gameweek matches the order of their actual scores (1 = identical, 0 = random; higher is better).</p>
+    <div class="legend" id="legend-bench"></div>
+    <div class="grid-2" id="bench"></div>
+  </section>
+
+  <section aria-labelledby="h-decisions">
+    <h2 id="h-decisions">Picks and captaincy</h2>
+    <p>Each gameweek, from the same pool of likely starters with history: the actual points of the model’s top 10 against points-per-game’s top 10, and of each one’s captain choice (doubled).</p>
+    <div class="grid-2" id="decisions"></div>
+  </section>
+
+  <section aria-labelledby="h-cal">
+    <h2 id="h-cal">Are the probabilities honest?</h2>
+    <p>Predictions are grouped by how likely the model said an event was; each dot is one group, placed at the average prediction (across) and how often it actually happened (up). Dots on the diagonal mean the probabilities can be taken at face value. Dot size shows how many predictions are in the group. 2025/26 season.</p>
+    <div class="grid-3" id="cal"></div>
+  </section>
+
+  <section aria-labelledby="h-pit">
+    <h2 id="h-pit">Is the spread of outcomes right?</h2>
+    <p>For every player-gameweek, where the actual score fell inside the predicted range, in tenths. If the ranges are honest, each tenth holds 10% of outcomes (the line). Too much at the edges would mean overconfidence; too much in the middle, vagueness.</p>
+    <div class="grid-2" id="pit"></div>
+  </section>
+
+  <section aria-labelledby="h-score">
+    <h2 id="h-score">Scorelines</h2>
+    <div class="grid-2">
+      <figure id="goals-fig"></figure>
+      <div class="stack" id="score-tiles"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-pos">
+    <h2 id="h-pos">By position (likely starters, 2025/26)</h2>
+    <div class="table-wrap"><table id="pos-table"></table></div>
+  </section>
+
+  <section aria-labelledby="h-next">
+    <h2 id="h-next">What to tune next</h2>
+    <div class="findings" id="findings"></div>
+  </section>
+
+  <section aria-labelledby="h-method">
+    <h2 id="h-method">How this was tested</h2>
+    <ul>
+      <li>2025/26 (37 gameweeks, about 29,000 player-matches) from the vaastav FPL archive, with market-average closing odds from football-data.co.uk; 2026/27 GW2–5 held out, with Kalshi prices as they stood 60 minutes before each deadline.</li>
+      <li>Every gameweek is rebuilt from information available before it: player totals, results and lineup history up to the previous gameweek only. Checks: FPL’s points reproduced for every 2025/26 player-match, every score reconciled, no future information.</li>
+      <li>No injury flags exist historically, so everyone counts as available. The live agent has flags, so it should do better on availability than shown here.</li>
+      <li>2025/26 closing odds are set slightly after FPL’s deadline, so they know a little more than the live agent will.</li>
+      <li>FPL’s own archived expected points were not used as a benchmark: missing for 27 of 38 gameweeks, and correlating 0.74–0.83 with actual points where present, which indicates they were recorded after the matches.</li>
+    </ul>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const LAST = DATA["2025-26"], HELD = DATA["2026-27"];
+const f2 = x => x.toFixed(2), f3 = x => x.toFixed(3), pct = x => (100 * x).toFixed(1) + "%";
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function text(parent, x, y, s, cls = "", anchor = "start") {
+  const t = el("text", { x, y, "text-anchor": anchor, class: cls }, parent);
+  t.textContent = s;
+  return t;
+}
+const tip = $("tip");
+function tipOn(node, msg) {
+  node.setAttribute("tabindex", "0");
+  node.setAttribute("aria-label", msg);
+  const show = e => {
+    tip.textContent = msg;
+    tip.hidden = false;
+    const r = node.getBoundingClientRect();
+    const x = e && e.clientX ? e.clientX : r.left + r.width / 2;
+    const y = e && e.clientY ? e.clientY : r.top;
+    tip.style.left = Math.min(x + 12, window.innerWidth - 270) + "px";
+    tip.style.top = (y + 14) + "px";
+  };
+  node.addEventListener("mousemove", show);
+  node.addEventListener("focus", () => show());
+  node.addEventListener("mouseleave", () => (tip.hidden = true));
+  node.addEventListener("blur", () => (tip.hidden = true));
+}
+function tableView(rows, head) {
+  const d = document.createElement("details");
+  d.innerHTML = "<summary>Table view</summary>";
+  const w = document.createElement("div");
+  w.className = "table-wrap";
+  const t = document.createElement("table");
+  t.innerHTML = "<tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr>" +
+    rows.map(r => "<tr>" + r.map(c => `<td>${c}</td>`).join("") + "</tr>").join("");
+  w.appendChild(t);
+  d.appendChild(w);
+  return d;
+}
+function figure(parent, title, sub) {
+  const fig = document.createElement("figure");
+  fig.innerHTML = `<figcaption><h3>${title}</h3>${sub ? `<span class="sub">${sub}</span>` : ""}</figcaption>`;
+  parent.appendChild(fig);
+  return fig;
+}
+
+// ---- header and verdict tiles ----
+$("gen").textContent = "generated " + DATA.generated;
+const LS = LAST.points.vs_benchmarks_likely_starters, HS = HELD.points.vs_benchmarks_likely_starters;
+const errCut = 1 - LS.model.mae / LS.points_per_game.mae;
+const dec = LAST.decisions;
+$("lede").textContent =
+  `Yes. Across ${LAST.gameweeks.length} gameweeks of 2025/26 and the held-out start of 2026/27, the model's expected points ` +
+  `have ${Math.round(100 * errCut)}% less error than points-per-game for likely starters, rank players ` +
+  `${(LS.model.rank / LS.points_per_game.rank).toFixed(1)}× better, and its probabilities match how often things actually happen.`;
+const tiles = [
+  [f2(LS.model.mae), `vs ${f2(LS.points_per_game.mae)}`, "Average points error, likely starters (points per game in grey)"],
+  [f3(LS.model.rank), `vs ${f3(LS.points_per_game.rank)}`, "Ranking quality within a gameweek, likely starters"],
+  [`${dec.top10_model_better_gws}/${dec.gameweeks}`, "", `Gameweeks where the model's top 10 outscored points-per-game's (${f2(dec.top10_model)} vs ${f2(dec.top10_ppg)} each)`],
+  [`+${Math.round(dec.captain_model_total - dec.captain_ppg_total)}`, "pts", "Captain points over the season vs picking by points per game"],
+];
+$("tiles").innerHTML = tiles.map(([v, s, l]) =>
+  `<div class="tile"><div class="value">${v} <small>${s}</small></div><div class="label">${l}</div></div>`).join("");
+
+// ---- benchmark bars ----
+const SERIES = [["model", "Model", "m-model"], ["points_per_game", "Points per game", "m-ppg"], ["last3_form", "Last-3 form", "m-form"]];
+$("legend-bench").innerHTML = SERIES.map(([, n, c]) =>
+  `<span><i style="background:var(--${c.slice(2)})"></i>${n}</span>`).join("");
+function groupedBars(parent, title, sub, groups, metric, fmt) {
+  const fig = figure(parent, title, sub);
+  const W = 420, H = 210, L = 8, R = 8, T = 14, B = 34;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": title }, fig);
+  const max = Math.max(...groups.flatMap(g => SERIES.map(([k]) => g.data[k][metric]))) * 1.18;
+  const y = v => T + (H - T - B) * (1 - v / max);
+  for (let i = 0; i <= 4; i++) el("line", { x1: L, x2: W - R, y1: y(max * i / 4), y2: y(max * i / 4), class: "gridline" }, svg);
+  el("line", { x1: L, x2: W - R, y1: y(0), y2: y(0), class: "axisline" }, svg);
+  const gap = 8, gw = (W - L - R) / groups.length, bw = Math.min(30, (gw - 16) / 3 - gap);
+  groups.forEach((g, gi) => {
+    const cx = L + gw * (gi + 0.5);
+    SERIES.forEach(([k, name, cls], si) => {
+      const v = g.data[k][metric], x = cx + (si - 1) * (bw + gap) - bw / 2;
+      const h = y(0) - y(v);
+      const path = `M${x},${y(0)} V${y(v) + 4} Q${x},${y(v)} ${x + 4},${y(v)} H${x + bw - 4} Q${x + bw},${y(v)} ${x + bw},${y(v) + 4} V${y(0)} Z`;
+      const bar = el("path", { d: h > 5 ? path : `M${x},${y(0)} h${bw} v${-Math.max(h, 1)} h${-bw} Z`, class: cls }, svg);
+      tipOn(bar, `${g.label} · ${name}: ${fmt(v)}`);
+      text(svg, x + bw / 2, y(v) - 5, fmt(v), "val", "middle");
+    });
+    text(svg, cx, H - 12, g.label, "", "middle");
+  });
+  fig.appendChild(tableView(groups.map(g => [g.label, ...SERIES.map(([k]) => fmt(g.data[k][metric]))]),
+    ["", ...SERIES.map(([, n]) => n)]));
+}
+const benchGroups = [
+  { label: "2025/26 starters", data: LS },
+  { label: "2025/26 GW2–6", data: LAST.points.vs_benchmarks_gw2_6 },
+  { label: "2026/27 held out", data: HS },
+];
+groupedBars($("bench"), "Average points error", "Lower is better", benchGroups, "mae", f2);
+groupedBars($("bench"), "Ranking within a gameweek", "Higher is better", benchGroups, "rank", f3);
+
+// ---- decisions ----
+function pairBars(parent, title, sub, rows, fmt) {
+  const fig = figure(parent, title, sub);
+  const W = 420, rowH = 30, L = 118, R = 56;
+  const H = rows.length * rowH + 8;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": title }, fig);
+  const max = Math.max(...rows.map(r => r[1])) * 1.05;
+  rows.forEach(([name, v, cls], i) => {
+    const y0 = 4 + i * rowH, w = (W - L - R) * v / max;
+    text(svg, L - 8, y0 + 16, name, "", "end");
+    const bar = el("path", { d: `M${L},${y0 + 4} H${L + w - 4} Q${L + w},${y0 + 4} ${L + w},${y0 + 8} V${y0 + 18} Q${L + w},${y0 + 22} ${L + w - 4},${y0 + 22} H${L} Z`, class: cls }, svg);
+    tipOn(bar, `${name}: ${fmt(v)}`);
+    text(svg, L + w + 6, y0 + 17, fmt(v), "val");
+  });
+  fig.appendChild(tableView(rows.map(([n, v]) => [n, fmt(v)]), ["", "value"]));
+}
+pairBars($("decisions"), "Top 10 picks", `Average actual points per player, 2025/26 (${dec.gameweeks} gameweeks)`,
+  [["Model", dec.top10_model, "m-model"], ["Points per game", dec.top10_ppg, "m-ppg"]], f2);
+pairBars($("decisions"), "Captain choice", "Average doubled points per gameweek, 2025/26",
+  [["Model", dec.captain_model, "m-model"], ["Points per game", dec.captain_ppg, "m-ppg"]], f2);
+
+// ---- calibration ----
+function calibrationPlot(parent, title, ev, maxp) {
+  const fig = figure(parent, title, `predicted ${pct(ev.predicted)} · actual ${pct(ev.actual)} · skill ${ev.skill >= 0 ? "+" : ""}${ev.skill.toFixed(2)}`);
+  const W = 260, H = 220, L = 34, R = 10, T = 10, B = 30;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": title }, fig);
+  const x = v => L + (W - L - R) * v / maxp, y = v => T + (H - T - B) * (1 - v / maxp);
+  const ticks = [0, maxp / 2, maxp];
+  ticks.forEach(t => {
+    el("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), class: "gridline" }, svg);
+    text(svg, L - 6, y(t) + 4, Math.round(100 * t) + "%", "", "end");
+    text(svg, x(t), H - 10, Math.round(100 * t) + "%", "", "middle");
+  });
+  el("line", { x1: x(0), y1: y(0), x2: x(maxp), y2: y(maxp), class: "ideal" }, svg);
+  const bins = ev.curve.filter(b => b.count >= 30 && b.mean_predicted <= maxp && b.observed <= maxp * 1.05);
+  const maxN = Math.max(...bins.map(b => b.count));
+  bins.forEach(b => {
+    const r = 4 + 5 * Math.sqrt(b.count / maxN);
+    const c = el("circle", { cx: x(b.mean_predicted), cy: y(Math.min(b.observed, maxp)), r, class: "dot" }, svg);
+    tipOn(c, `predicted ${pct(b.mean_predicted)} → happened ${pct(b.observed)} (${b.count.toLocaleString()} predictions)`);
+  });
+  fig.appendChild(tableView(ev.curve.map(b => [`${Math.round(100 * b.lower)}–${Math.round(100 * b.upper)}%`, pct(b.mean_predicted), pct(b.observed), b.count.toLocaleString()]),
+    ["group", "predicted", "happened", "n"]));
+}
+const E = LAST.events;
+calibrationPlot($("cal"), "Starts", E["start"], 1);
+calibrationPlot($("cal"), "Scores a goal", E["goal"], 0.6);
+calibrationPlot($("cal"), "Gets an assist", E["assist"], 0.4);
+calibrationPlot($("cal"), "Clean sheet (GK/DEF)", E["clean sheet (GK/DEF)"], 0.6);
+calibrationPlot($("cal"), "DEFCON bonus", E["DEFCON (outfield)"], 0.8);
+calibrationPlot($("cal"), "Scores 6+ points", LAST.hauls.p6, 0.7);
+
+// ---- PIT ----
+function pitPlot(parent, title, values) {
+  const fig = figure(parent, title, "share of outcomes per tenth of the predicted range; the line marks the honest 10%");
+  const W = 420, H = 180, L = 36, R = 8, T = 10, B = 30, max = 0.2;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": title }, fig);
+  const y = v => T + (H - T - B) * (1 - v / max);
+  [0, 0.1, 0.2].forEach(t => {
+    el("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), class: "gridline" }, svg);
+    text(svg, L - 6, y(t) + 4, Math.round(100 * t) + "%", "", "end");
+  });
+  const bw = (W - L - R) / values.length;
+  values.forEach((v, i) => {
+    const x = L + i * bw + 1, w = bw - 2;
+    const bar = el("path", { d: `M${x},${y(0)} V${y(v) + 3} Q${x},${y(v)} ${x + 3},${y(v)} H${x + w - 3} Q${x + w},${y(v)} ${x + w},${y(v) + 3} V${y(0)} Z`, class: "m-model" }, svg);
+    tipOn(bar, `${i * 10}–${i * 10 + 10}% of the predicted range: ${pct(v)} of outcomes`);
+  });
+  el("line", { x1: L, x2: W - R, y1: y(0.1), y2: y(0.1), class: "ref" }, svg);
+  text(svg, L, H - 10, "lower", "", "start");
+  text(svg, W - R, H - 10, "higher than predicted", "", "end");
+  fig.appendChild(tableView(values.map((v, i) => [`${i * 10}–${i * 10 + 10}%`, pct(v)]), ["tenth", "share"]));
+}
+pitPlot($("pit"), "2025/26 · all player-gameweeks", LAST.hauls.pit_all);
+pitPlot($("pit"), "2026/27 held out · all player-gameweeks", HELD.hauls.pit_all);
+
+// ---- scorelines ----
+(function goals() {
+  const fig = $("goals-fig");
+  fig.innerHTML = `<figcaption><h3>Expected vs actual goals per team</h3><span class="sub">2025/26, matches grouped by the team's expected goals</span></figcaption>`;
+  const bins = LAST.scorelines.team_goal_calibration, max = 2.6;
+  const W = 420, H = 230, L = 34, R = 10, T = 10, B = 30;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Expected vs actual goals" }, fig);
+  const x = v => L + (W - L - R) * v / max, y = v => T + (H - T - B) * (1 - v / max);
+  [0, 1, 2].forEach(t => {
+    el("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), class: "gridline" }, svg);
+    text(svg, L - 6, y(t) + 4, t, "", "end");
+    text(svg, x(t), H - 10, t, "", "middle");
+  });
+  el("line", { x1: x(0), y1: y(0), x2: x(max), y2: y(max), class: "ideal" }, svg);
+  const maxN = Math.max(...bins.map(b => b.n));
+  bins.forEach(b => {
+    const c = el("circle", { cx: x(b.predicted), cy: y(b.actual), r: 4 + 5 * Math.sqrt(b.n / maxN), class: "dot" }, svg);
+    tipOn(c, `expected ${f2(b.predicted)} → scored ${f2(b.actual)} (${b.n} team-matches)`);
+  });
+  fig.appendChild(tableView(bins.map(b => [`${b.lower}–${b.upper}`, f2(b.predicted), f2(b.actual), b.n]), ["expected goals", "mean expected", "mean scored", "n"]));
+})();
+const S = LAST.scorelines;
+$("score-tiles").innerHTML = [
+  [pct(S.draw_predicted), `vs ${pct(S.draw_actual)} actual`, "Draws predicted: too few, the known weakness of the simple Poisson model"],
+  [Math.round(S.goals_predicted).toLocaleString(), `vs ${S.goals_actual.toLocaleString()} actual`, "Total goals, 2025/26: about 4% too many"],
+  [f3(S.brier_1x2), "vs 0.667", "Win/draw/loss accuracy (Brier; a coin flip scores 0.667, lower is better)"],
+].map(([v, s, l]) => `<div class="tile"><div class="value">${v} <small>${s}</small></div><div class="label">${l}</div></div>`).join("");
+
+// ---- positions ----
+(function positions() {
+  const P = LAST.points.by_position;
+  const rows = ["GKP", "DEF", "MID", "FWD"].filter(k => P[k].n).map(k => {
+    const d = P[k], win = d.model.rank > d.points_per_game.rank;
+    return `<tr><td>${{ GKP: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", FWD: "Forwards" }[k]}</td><td>${d.n.toLocaleString()}</td>` +
+      `<td>${f2(d.model.mae)}</td><td>${f2(d.points_per_game.mae)}</td>` +
+      `<td class="${win ? "win" : ""}">${f3(d.model.rank)}</td><td>${f3(d.points_per_game.rank)}</td>` +
+      `<td>${d.model.bias >= 0 ? "+" : ""}${f2(d.model.bias)}</td></tr>`;
+  });
+  $("pos-table").innerHTML = "<tr><th>Position</th><th>n</th><th>Error, model</th><th>Error, points per game</th><th>Ranking, model</th><th>Ranking, points per game</th><th>Bias, model</th></tr>" + rows.join("");
+})();
+
+// ---- findings ----
+const D = E["DEFCON (outfield)"];
+$("findings").innerHTML = [
+  ["watch", "Draws", `The model predicts ${pct(S.draw_predicted)} draws against ${pct(S.draw_actual)} actual over ${S.matches} matches. A Dixon-Coles correction adds the missing low-scoring draws.`],
+  ["watch", "High-scoring teams", "Teams expected to score 1.6 or more scored about 0.2 fewer goals than expected. Together with the draws, this is where the 4% goal surplus comes from."],
+  ["watch", "DEFCON", `Predicted ${pct(D.predicted)} of outfield player-matches, actual ${pct(D.actual)}: about 10% short, in both seasons.`],
+  ["good", "Starts and hauls", `Starts ${pct(E["start"].predicted)} vs ${pct(E["start"].actual)}; 6+ points ${pct(LAST.hauls.p6.predicted)} vs ${pct(LAST.hauls.p6.actual)}. No change needed.`],
+].map(([k, h, t]) => `<div class="finding"><span class="pill ${k}">${k === "good" ? "holds" : "tune in 7d"}</span><h3>${h}</h3><p>${t}</p></div>`).join("");
+</script>

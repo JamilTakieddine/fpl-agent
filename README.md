@@ -33,7 +33,7 @@ python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g.
 python scripts/fetch_history.py   # download last season's archives for back-testing (gitignored)
 python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
 python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
-python -m fpl_agent.validation    # back-test both seasons: per-step metrics vs benchmarks
+python -m fpl_agent.validation --report  # back-test both seasons; writes docs/validation.md
 ```
 
 ## Phase 0
@@ -48,5 +48,6 @@ The first run opens a clean Chromium window for you to log in. The session is sa
 
 Why it works this way, and every other design decision: [`docs/decisions.md`](docs/decisions.md).
 What to re-check and how often: [`docs/maintenance.md`](docs/maintenance.md).
+How well the simulation predicts real gameweeks: [`docs/validation.md`](docs/validation.md).
 
 Unofficial project. Not affiliated with the Premier League or Fantasy Premier League.

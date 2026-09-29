@@ -1,9 +1,10 @@
-"""Run the back-test and print per-step metrics: python -m fpl_agent.validation [--reuse]
+"""Run the back-test and print per-step metrics: python -m fpl_agent.validation [--reuse] [--report]
 
 Seasons: 2025/26 GW2-38 (archives, closing odds) and 2026/27 GW2-5 (FPL live data, Kalshi
 prices 60 minutes before each deadline), the held-out season. Needs the downloads from
 scripts/fetch_history.py and scripts/fetch_kalshi_history.py plus the cached live data in
-data/cache/. --reuse skips simulation and summarises saved records.
+data/cache/. --reuse skips simulation and summarises saved records. --report also writes
+docs/validation.md and data/cache/validation/report.html (published as the HTML page).
 """
 
 from __future__ import annotations
@@ -12,12 +13,14 @@ import json
 import sys
 import time
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import numpy as np
 
 from fpl_agent.data.models import Bootstrap, Fixture
 from fpl_agent.validation.backtest import (
+    VALIDATION_DIR,
     GameweekRecords,
     MatchRecord,
     PointsRecord,
@@ -37,6 +40,7 @@ from fpl_agent.validation.metrics import (
     poisson_score_log_likelihood,
 )
 from fpl_agent.validation.pointintime import Season, load_season
+from fpl_agent.validation.report import build_report, render_html, render_markdown
 
 EARLY = range(2, 7)  # gameweeks 2-6: little history yet
 
@@ -172,8 +176,17 @@ def summarise(name: str, rec: GameweekRecords) -> None:
     summarise_points(rec.points)
 
 
+def write_report(records: dict[str, GameweekRecords]) -> None:
+    report = build_report(records, date.today().isoformat())
+    (VALIDATION_DIR / "report.json").write_text(json.dumps(report, indent=1))
+    (VALIDATION_DIR / "report.html").write_text(render_html(report))
+    Path("docs/validation.md").write_text(render_markdown(report))
+    print(f"\nwrote docs/validation.md and {VALIDATION_DIR / 'report.html'}")
+
+
 def main() -> int:
     reuse = "--reuse" in sys.argv
+    records: dict[str, GameweekRecords] = {}
     for name, (season, gws) in seasons().items():
         if reuse:
             rec = load(name)
@@ -183,6 +196,9 @@ def main() -> int:
             save(rec, name)
             print(f"{name}: simulated {len(gws)} gameweeks in {time.perf_counter() - t0:.0f}s")
         summarise(name, rec)
+        records[name] = rec
+    if "--report" in sys.argv:
+        write_report(records)
     return 0
 
 
