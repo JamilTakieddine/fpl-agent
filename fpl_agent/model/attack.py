@@ -94,10 +94,16 @@ def attack_rates(players: list[Player], fixtures: list[Fixture]) -> AttackRates:
 
 @dataclass(frozen=True)
 class AttackSamples:
-    """Goals and assists, aligned with MinutesSamples rows: arrays are (rows, n_sims)."""
+    """Goals and assists, aligned with MinutesSamples rows: arrays are (rows, n_sims).
+
+    goal_minutes[(fixture, team)] is (max_goals, n_sims): the minute of each goal that team scored
+    (own goals included, since the other side concedes them); np.inf where fewer goals happened.
+    Step 4 uses it to count goals conceded while each player was on the pitch.
+    """
 
     goals: NDArray[np.int64]
     assists: NDArray[np.int64]
+    goal_minutes: dict[tuple[int, int], NDArray[np.float64]]
 
 
 def _categorical(weights: NDArray[np.float64], rng: np.random.Generator) -> NDArray[np.int64]:
@@ -124,10 +130,11 @@ def simulate_attack(
     `teams` maps player id -> team id. Fixtures are processed in id order, home side first, so a
     seed gives identical results.
     """
-    n_rows, n_sims = minutes.minutes.shape
+    n_rows, n_sims = int(minutes.minutes.shape[0]), int(minutes.minutes.shape[1])
     goals = np.zeros((n_rows, n_sims), dtype=np.int64)
     assists = np.zeros((n_rows, n_sims), dtype=np.int64)
     sims = np.arange(n_sims)
+    goal_minutes: dict[tuple[int, int], NDArray[np.float64]] = {}
     row_team = np.array([teams[int(p)] for p in minutes.player], dtype=np.int64)
 
     for fid in sorted(scores):
@@ -135,7 +142,9 @@ def simulate_attack(
         for team, team_goals in ((f.team_h, scores[fid].home), (f.team_a, scores[fid].away)):
             rows = np.flatnonzero((minutes.fixture == fid) & (row_team == team))
             max_goals = int(team_goals.max()) if team_goals.size else 0
-            if rows.size == 0 or max_goals == 0:
+            times = np.full((max_goals, n_sims), np.inf)
+            goal_minutes[(fid, team)] = times
+            if max_goals == 0:
                 continue
             on_from = minutes.on_from[rows]
             off_at = on_from + minutes.minutes[rows]
@@ -144,7 +153,10 @@ def simulate_attack(
 
             for g in range(max_goals):
                 happened = team_goals > g
-                t = rng.uniform(0, FULL_MATCH, n_sims)
+                t = rng.uniform(0.0, float(FULL_MATCH), size=n_sims)
+                times[g, happened] = t[happened]
+                if rows.size == 0:
+                    continue  # no players of this team in the samples; the goal still counts
                 on_pitch = (on_from <= t) & (t < off_at)
                 own_goal = rng.random(n_sims) < rates.own_goal_share
                 scorer = _categorical(w_goal * on_pitch, rng)
@@ -159,4 +171,4 @@ def simulate_attack(
                 assisted = credited & gets_assist & (assister >= 0)
                 np.add.at(assists, (rows[assister[assisted]], sims[assisted]), 1)
 
-    return AttackSamples(goals=goals, assists=assists)
+    return AttackSamples(goals=goals, assists=assists, goal_minutes=goal_minutes)
