@@ -10,8 +10,9 @@ Status:
 - **Phase 2 (Monte Carlo simulations): in progress.** Done: scorelines from odds (live Kalshi → saved
   Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
   (goals and assists given the scoreline), defensive events (clean sheets, goals conceded, saves,
-  DEFCON), bonus points from a fitted BPS model, and FPL points per player per simulation. Next:
-  validation (back-testing against real gameweeks).
+  DEFCON), bonus points from a fitted BPS model, and FPL points per player per simulation. Now:
+  validation, back-testing against real gameweeks (7a done: last season's data, rebuilt without
+  peeking and verified).
 
 ## Setup
 ```bash
@@ -29,6 +30,8 @@ python -m fpl_agent.data          # live check + records snapshots/odds: deadlin
                                   # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)
 python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
+python scripts/fetch_history.py   # download last season's archives for back-testing (gitignored)
+python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
 ```
 
 ## Phase 0
