@@ -25,7 +25,8 @@ from typing import Any
 import numpy as np
 
 from fpl_agent.data.lineups import predict_all
-from fpl_agent.data.odds import outcome_probs
+from fpl_agent.data.odds import dc_outcome_probs
+from fpl_agent.model.defence import defence_rates
 from fpl_agent.model.gameweek import simulate_gameweek
 from fpl_agent.model.scoring_rules import DEFCON_THRESHOLD
 from fpl_agent.validation.history import HistoricalRow
@@ -49,6 +50,7 @@ class MatchRecord:
     p_away: float
     home_goals: int
     away_goals: int
+    rho: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,8 @@ class RowRecord:
     defcon: int
     saves: int
     bonus: int
+    defcon_rate90: float = 0.0  # the model's DEFCON actions per 90 for this player (D27)
+    defcon_count: int = 0  # actual DEFCON actions (CBIT for DEF, CBIRT for MID/FWD)
 
 
 @dataclass(frozen=True)
@@ -146,7 +150,7 @@ def run_gameweek(season: Season, target: int, n_sims: int = BACKTEST_SIMS) -> Ga
         actual_by_fixture[fid] = (f.team_h_score or 0, f.team_a_score or 0)
     matches = []
     for fid, rate in sorted(sim.rates.items()):
-        h, d, a = outcome_probs(rate.lambda_home, rate.lambda_away)
+        h, d, a = dc_outcome_probs(rate.lambda_home, rate.lambda_away, rate.rho)
         hg, ag = actual_by_fixture.get(fid, (0, 0))
         matches.append(
             MatchRecord(
@@ -161,9 +165,11 @@ def run_gameweek(season: Season, target: int, n_sims: int = BACKTEST_SIMS) -> Ga
                 a,
                 hg,
                 ag,
+                rate.rho,
             )
         )
 
+    dc_rates = defence_rates(case.bootstrap.elements, case.fixtures)
     row_index = {
         (int(p), int(f)): i
         for i, (p, f) in enumerate(zip(smp.minutes.player, smp.minutes.fixture, strict=True))
@@ -199,6 +205,8 @@ def run_gameweek(season: Season, target: int, n_sims: int = BACKTEST_SIMS) -> Ga
                 defcon=int(threshold is not None and r.defensive_contribution >= threshold),
                 saves=r.saves,
                 bonus=r.bonus,
+                defcon_rate90=dc_rates.dc90.get(r.element, 0.0),
+                defcon_count=r.defensive_contribution,
             )
         )
 

@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
@@ -13,10 +12,12 @@ import pytest
 from fpl_agent.data.models import Bootstrap, Fixture, Player, PositionCode
 from fpl_agent.model.attack import AttackSamples
 from fpl_agent.model.defence import (
+    DEFCON_DISPERSION,
     DEFCON_PRIOR_MINUTES,
     DefenceRates,
     DefenceSamples,
     defence_rates,
+    overdispersed_counts,
     simulate_defence,
 )
 from fpl_agent.model.minutes import MinutesSamples
@@ -111,15 +112,22 @@ def test_double_gameweek_scored_per_match() -> None:
     assert d.clean_sheet[0].all() and not d.clean_sheet[1].any()
 
 
-def poisson_at_least(k: int, lam: float) -> float:
-    return 1 - sum(math.exp(-lam) * lam**i / math.factorial(i) for i in range(k))
+def nb_at_least(k: int, mean: float, dispersion: float = DEFCON_DISPERSION) -> float:
+    """P(X >= k) for a negative binomial with this mean and variance = dispersion x mean."""
+    n, p = mean / (dispersion - 1), 1 / dispersion
+    pmf = p**n  # P(X = 0)
+    below = 0.0
+    for i in range(k):
+        below += pmf
+        pmf *= (i + n) / (i + 1) * (1 - p)
+    return 1 - below
 
 
-def test_defcon_hit_rate_matches_poisson_and_scales_with_minutes() -> None:
+def test_defcon_hit_rate_matches_negative_binomial_and_scales_with_minutes() -> None:
     rates = DefenceRates(dc90={1: 9.0, 2: 9.0, 3: 20.0}, saves90={}, goals_per_team=1.2)
     ms = minutes_rows([(1, 1, 0, 90), (2, 1, 0, 45), (3, 1, 0, 90)])
     d = run(ms, goals_at([]), DEF, rates)
-    assert d.defcon_award[0].mean() == pytest.approx(poisson_at_least(10, 9.0), abs=0.01)
+    assert d.defcon_award[0].mean() == pytest.approx(nb_at_least(10, 9.0), abs=0.01)
     assert d.defcon_count[1].mean() == pytest.approx(4.5, abs=0.05)  # half the minutes
     assert not d.defcon_award[2].any()  # goalkeepers can't earn DEFCON
 
@@ -127,7 +135,7 @@ def test_defcon_hit_rate_matches_poisson_and_scales_with_minutes() -> None:
 def test_forward_threshold_is_twelve() -> None:
     rates = DefenceRates(dc90={9: 12.0}, saves90={}, goals_per_team=1.2)
     d = run(minutes_rows([(9, 1, 0, 90)]), goals_at([]), DEF, rates)
-    assert d.defcon_award[0].mean() == pytest.approx(poisson_at_least(12, 12.0), abs=0.01)
+    assert d.defcon_award[0].mean() == pytest.approx(nb_at_least(12, 12.0), abs=0.01)
 
 
 def test_saves_scale_with_opponent_attack_and_minutes() -> None:
@@ -186,3 +194,15 @@ def test_saves_only_for_goalkeepers_and_league_goal_rate(base: Player) -> None:
     r = defence_rates([gk, df], [played])
     assert set(r.saves90) == {1}
     assert r.goals_per_team == pytest.approx(1.5)
+
+
+def test_overdispersed_counts_have_the_intended_mean_and_spread() -> None:
+    rng = np.random.default_rng(0)
+    mean = np.full((1, 200_000), 8.0)
+    counts = overdispersed_counts(mean, 1.55, rng)
+    assert counts.mean() == pytest.approx(8.0, rel=0.01)
+    assert counts.var() / counts.mean() == pytest.approx(1.55, rel=0.03)
+    poisson = overdispersed_counts(mean, 1.0, rng)  # dispersion 1 is plain Poisson
+    assert poisson.var() / poisson.mean() == pytest.approx(1.0, rel=0.03)
+    zeros = overdispersed_counts(np.zeros((1, 10)), 1.55, rng)
+    assert (zeros == 0).all()

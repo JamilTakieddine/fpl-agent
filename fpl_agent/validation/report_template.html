@@ -165,7 +165,7 @@
   </section>
 
   <section aria-labelledby="h-next">
-    <h2 id="h-next">What to tune next</h2>
+    <h2 id="h-next">What the tuning pass changed</h2>
     <div class="findings" id="findings"></div>
   </section>
 
@@ -389,8 +389,8 @@ pitPlot($("pit"), "2026/27 held out · all player-gameweeks", HELD.hauls.pit_all
 })();
 const S = LAST.scorelines;
 $("score-tiles").innerHTML = [
-  [pct(S.draw_predicted), `vs ${pct(S.draw_actual)} actual`, "Draws predicted: too few, the known weakness of the simple Poisson model"],
-  [Math.round(S.goals_predicted).toLocaleString(), `vs ${S.goals_actual.toLocaleString()} actual`, "Total goals, 2025/26: about 4% too many"],
+  [pct(S.draw_predicted), `vs ${pct(S.draw_actual)} actual`, "Draws predicted, now at the market's own draw price (Dixon-Coles)"],
+  [Math.round(S.goals_predicted).toLocaleString(), `vs ${S.goals_actual.toLocaleString()} actual`, "Total goals, 2025/26: about 4% high, within about one standard error"],
   [f3(S.brier_1x2), "vs 0.667", "Win/draw/loss accuracy (Brier; a coin flip scores 0.667, lower is better)"],
 ].map(([v, s, l]) => `<div class="tile"><div class="value">${v} <small>${s}</small></div><div class="label">${l}</div></div>`).join("");
 
@@ -407,12 +407,12 @@ $("score-tiles").innerHTML = [
   $("pos-table").innerHTML = "<tr><th>Position</th><th>n</th><th>Error, model</th><th>Error, points per game</th><th>Ranking, model</th><th>Ranking, points per game</th><th>Bias, model</th></tr>" + rows.join("");
 })();
 
-// ---- findings ----
-const D = E["DEFCON (outfield)"];
+// ---- findings: what the tuning pass (7d) changed, and what is still being watched ----
+const D = E["DEFCON (outfield)"], HE = HELD.events;
 $("findings").innerHTML = [
-  ["watch", "Draws", `The model predicts ${pct(S.draw_predicted)} draws against ${pct(S.draw_actual)} actual over ${S.matches} matches. A Dixon-Coles correction adds the missing low-scoring draws.`],
-  ["watch", "High-scoring teams", "Teams expected to score 1.6 or more scored about 0.2 fewer goals than expected. Together with the draws, this is where the 4% goal surplus comes from."],
-  ["watch", "DEFCON", `Predicted ${pct(D.predicted)} of outfield player-matches, actual ${pct(D.actual)}: about 10% short, in both seasons.`],
-  ["good", "Starts and hauls", `Starts ${pct(E["start"].predicted)} vs ${pct(E["start"].actual)}; 6+ points ${pct(LAST.hauls.p6.predicted)} vs ${pct(LAST.hauls.p6.actual)}. No change needed.`],
-].map(([k, h, t]) => `<div class="finding"><span class="pill ${k}">${k === "good" ? "holds" : "tune in 7d"}</span><h3>${h}</h3><p>${t}</p></div>`).join("");
+  ["good", "Draws", `Dixon-Coles now reproduces the market's draw price: ${pct(S.draw_predicted)} predicted, the market's own level. Actual was ${pct(S.draw_actual)} over ${S.matches} matches; that last gap is about one standard error, so it is left alone rather than second-guessing the market.`],
+  ["good", "DEFCON", `Counts now allow for the extra match-to-match swing (negative binomial): ${pct(D.predicted)} predicted vs ${pct(D.actual)} actual, and ${pct(HE["DEFCON (outfield)"].predicted)} vs ${pct(HE["DEFCON (outfield)"].actual)} in the held-out season.`],
+  ["good", "Lineups", `The lineup model now looks at the last 2 gameweeks instead of 6. Start predictions: Brier ${E["start"].brier.toFixed(4)}, skill +${E["start"].skill.toFixed(2)}.`],
+  ["watch", "Goals and clean sheets", `Goals ${Math.round(S.goals_predicted).toLocaleString()} predicted vs ${S.goals_actual.toLocaleString()} actual (about one standard error, not acted on). Held-out clean sheets ${pct(HE["clean sheet (GK/DEF)"].predicted)} vs ${pct(HE["clean sheet (GK/DEF)"].actual)} on four gameweeks: recheck as the season grows.`],
+].map(([k, h, t]) => `<div class="finding"><span class="pill ${k}">${k === "good" ? "fixed in 7d" : "watch"}</span><h3>${h}</h3><p>${t}</p></div>`).join("");
 </script>

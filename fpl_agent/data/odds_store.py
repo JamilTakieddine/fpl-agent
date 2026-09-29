@@ -44,6 +44,7 @@ class SavedOdds(BaseModel):
     draw_gap: float
     taken_at: datetime
     kickoff: datetime
+    rho: float = 0.0  # older saved files predate Dixon-Coles (D27): plain Poisson
 
     def to_match_odds(self) -> MatchOdds:
         fields = {f.name for f in dataclasses.fields(MatchOdds)}

@@ -35,8 +35,15 @@ from fpl_agent.data.client import FplClient
 from fpl_agent.data.models import EventLive, LiveElement, Player
 from fpl_agent.data.snapshots import FlagSnapshot, PlayerFlag, SnapshotStore
 
-WINDOW_GWS = 6
-PRIOR_MATCHES = 1.0
+# The lineup model's memory. Tuned out of sample (D27): on the 2025/26 back-test start predictions
+# improved steadily as the window shrank (Brier 0.0974 at 6 -> 0.0868 at 2, with prior 1), and the
+# held-out 2026/27 GW2-5 confirmed it (0.0957 -> 0.0894). Roles change fast (signings, dropped
+# players, formation switches), so older matches mostly add stale information.
+WINDOW_GWS = 2
+PRIOR_MATCHES = 1.0  # best with the short window: 0.5 over-reacts, 2-4 drags back to stale roles
+# How much live data is loaded for FITTING (minutes distributions, the bonus model). Separate from
+# WINDOW_GWS: those fits want more data, while lineup roles want recency.
+HISTORY_GWS = 6
 UNAVAILABLE_STATUSES = frozenset({"i", "s", "u", "n"})
 DOUBTFUL_NO_PERCENT = 0.5  # status "d" without a percentage (rare)
 # Measured 2026-09-26: of 130 currently-unflagged players who started all their team's GW1-4
@@ -147,9 +154,15 @@ def predict(player: Player, history: RoleHistory, prior_start_rate: float) -> Li
     )
 
 
-def window_events(event: int, n: int = WINDOW_GWS) -> list[int]:
-    """The last n gameweeks before `event`."""
-    return list(range(max(1, event - n), event))
+def window_events(event: int, n: int | None = None) -> list[int]:
+    """The last n gameweeks before `event` (default WINDOW_GWS, read at call time)."""
+    size = WINDOW_GWS if n is None else n
+    return list(range(max(1, event - size), event))
+
+
+def history_events(event: int) -> list[int]:
+    """The last HISTORY_GWS gameweeks before `event`: live data to load for fitting (D27)."""
+    return window_events(event, max(HISTORY_GWS, WINDOW_GWS))
 
 
 def excused_matches(

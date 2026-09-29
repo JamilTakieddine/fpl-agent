@@ -65,9 +65,9 @@ class MatchOdds:
     max_spread: float
     total_source: str  # "totals" (total-goals market) or "draw" (fallback: from the draw price)
     totals_lines: int  # totals lines that passed the gate (0 when total_source == "draw")
-    draw_gap: (
-        float  # model P(draw) - market P(draw); ~0 by construction when total_source == "draw"
-    )
+    # plain-Poisson P(draw) - market P(draw): the gap the Dixon-Coles rho closes (D27)
+    draw_gap: float
+    rho: float = 0.0  # Dixon-Coles low-score adjustment; 0 = plain independent Poisson
 
 
 # --- Poisson model ------------------------------------------------------------------------------
@@ -88,6 +88,55 @@ def outcome_probs(lambda_home: float, lambda_away: float) -> tuple[float, float,
     # away = 1 - home - draw would dump it all on the away side (a small home/away asymmetry).
     total = home + draw + away
     return home / total, draw / total, away / total
+
+
+# --- Dixon-Coles (D27) ---------------------------------------------------------------------
+# tau(0,0) = 1 - lh*la*rho, tau(0,1) = 1 + lh*rho, tau(1,0) = 1 + la*rho, tau(1,1) = 1 - rho
+# multiply the four low-score cells of the independent Poisson table. The adjustments sum to 0 and
+# leave the mean goals and every cell with 3+ goals unchanged, so P(over 2.5) and the total fit are
+# untouched; P(home) and P(away) each rise by rho*lh*la*e^-(lh+la) and P(draw) falls by twice that.
+# So rho can be solved in closed form to hit the market's draw price exactly, with the split
+# (home minus away) unchanged: all three 1X2 prices and the totals line are then reproduced.
+
+RHO_MARGIN = 0.98  # stay strictly inside the range where every tau is non-negative
+
+
+def dc_rho(lambda_home: float, lambda_away: float, target_draw: float) -> float:
+    """The rho giving a Dixon-Coles draw probability of `target_draw` (clamped to valid)."""
+    _, poisson_draw, _ = outcome_probs(lambda_home, lambda_away)
+    base = 2 * lambda_home * lambda_away * math.exp(-lambda_home - lambda_away)
+    if base <= 0:
+        return 0.0
+    rho = (poisson_draw - target_draw) / base
+    upper = min(1.0, 1 / (lambda_home * lambda_away)) * RHO_MARGIN
+    lower = -min(1 / lambda_home, 1 / lambda_away) * RHO_MARGIN
+    return max(lower, min(upper, rho))
+
+
+def score_matrix(lambda_home: float, lambda_away: float, rho: float = 0.0) -> list[list[float]]:
+    """P(home = i, away = j) for i, j in 0..MAX_GOALS, Dixon-Coles adjusted, normalised."""
+    h, a = _pmf(lambda_home), _pmf(lambda_away)
+    n = MAX_GOALS + 1
+    m = [[h[i] * a[j] for j in range(n)] for i in range(n)]
+    m[0][0] *= 1 - lambda_home * lambda_away * rho
+    m[0][1] *= 1 + lambda_home * rho
+    m[1][0] *= 1 + lambda_away * rho
+    m[1][1] *= 1 - rho
+    total = sum(sum(row) for row in m)
+    return [[x / total for x in row] for row in m]
+
+
+def dc_outcome_probs(
+    lambda_home: float, lambda_away: float, rho: float
+) -> tuple[float, float, float]:
+    """P(home win), P(draw), P(away win) under Dixon-Coles (rho = 0: plain Poisson)."""
+    if rho == 0.0:
+        return outcome_probs(lambda_home, lambda_away)
+    m = score_matrix(lambda_home, lambda_away, rho)
+    n = len(m)
+    home = sum(m[i][j] for i in range(n) for j in range(i))
+    draw = sum(m[i][i] for i in range(n))
+    return home, draw, 1.0 - home - draw
 
 
 def _bisect(f: Callable[[float], float], lo: float, hi: float, iters: int = 60) -> float:
@@ -225,11 +274,14 @@ def match_odds(
     p_home, p_draw, p_away = (x / total for x in raw)
 
     from_totals = total_from_totals(totals or [])
+    rho = 0.0
     if from_totals is not None:
         goal_total, lines_used = from_totals
         lam_h, lam_a = split_total(goal_total, p_home, p_away)
         source = "totals"
+        rho = dc_rho(lam_h, lam_a, p_draw)  # the draw price is still unused: spend it on rho
     else:
+        # Only 1X2: the draw price already set the total, so there's nothing left to fit rho.
         lam_h, lam_a = solve_lambdas(p_home, p_draw)
         lines_used, source = 0, "draw"
     _, model_draw, _ = outcome_probs(lam_h, lam_a)
@@ -246,6 +298,7 @@ def match_odds(
         total_source=source,
         totals_lines=lines_used,
         draw_gap=model_draw - p_draw,
+        rho=rho,
     )
 
 

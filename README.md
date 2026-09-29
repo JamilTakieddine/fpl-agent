@@ -7,12 +7,11 @@ Status:
 - **Phase 1 (data layer): complete.** Typed FPL API client with auth and token refresh, fixture calendar
   with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
   availability-flag snapshots, and Kalshi match odds converted to expected goals.
-- **Phase 2 (Monte Carlo simulations): in progress.** Done: scorelines from odds (live Kalshi → saved
-  Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
-  (goals and assists given the scoreline), defensive events (clean sheets, goals conceded, saves,
-  DEFCON), bonus points from a fitted BPS model, and FPL points per player per simulation. Now:
-  validation, back-testing against real gameweeks (7a: data rebuilt without peeking and verified;
-  7b: runner and first results, beating form-based benchmarks in both seasons).
+- **Phase 2 (Monte Carlo simulations): complete.** Scorelines from odds (live Kalshi → saved Kalshi → xG
+  ratings, Dixon-Coles from the market's draw price), minutes, attacking and defensive events, bonus, and
+  FPL points, validated against 2025/26 and early 2026/27: it beats form-based benchmarks on accuracy
+  and ranking, with honest probabilities (`docs/validation.md`).
+- **Next: Phase 3**, the optimizer (lineup, captain, bench, transfers, chips) for H2H win probability.
 
 ## Setup
 ```bash

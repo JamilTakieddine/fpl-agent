@@ -17,7 +17,7 @@ from fpl_agent.config import ConfigError, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
 from fpl_agent.data.kalshi import KalshiClient
-from fpl_agent.data.lineups import predict_all, window_events
+from fpl_agent.data.lineups import history_events, predict_all, window_events
 from fpl_agent.data.odds import load_odds
 from fpl_agent.data.odds_store import FileOddsStore, usable_saved_odds
 from fpl_agent.data.snapshots import FileSnapshotStore
@@ -49,7 +49,8 @@ def main() -> int:
         return 0
     event = upcoming[0]
 
-    lives = {gw: client.event_live(gw) for gw in window_events(event)}
+    # Live data for the fits (minutes, bonus); the lineup model uses its own shorter window.
+    lives = {gw: client.event_live(gw) for gw in history_events(event)}
     snap_store = FileSnapshotStore(settings.snapshot_dir)
     snaps = {gw: s for gw in window_events(event) if (s := snap_store.load(gw)) is not None}
     predictions = predict_all(boot.elements, cal, lives, event, snaps)

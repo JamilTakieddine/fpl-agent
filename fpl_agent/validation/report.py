@@ -237,7 +237,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         'The simulation beats both "just use form" benchmarks in both seasons, on accuracy and on '
         "ranking players within a gameweek, and its probabilities match how often things actually "
-        "happen. Three calibration gaps are left for 7d: draws, high-scoring teams and DEFCON.",
+        "happen. The tuning pass (7d) fixed the draw and DEFCON gaps and sharpened the lineup "
+        "model; what remains is on the watch list below.",
         "",
         "## Expected points vs benchmarks",
         "",
@@ -309,15 +310,35 @@ def render_markdown(report: dict[str, Any]) -> str:
     for pos, d in lp["by_position"].items():
         if d["n"]:
             lines.append(_row(pos, d))
+    held_cs = held["events"]["clean sheet (GK/DEF)"]
     lines += [
         "",
-        "## To tune in 7d",
+        "## Changed in 7d (D27)",
         "",
-        f"1. **Draws:** {sc['draw_predicted']:.1%} predicted vs {sc['draw_actual']:.1%} actual; "
-        "a Dixon-Coles correction.",
-        "2. **High-scoring teams:** teams expected to score 1.6+ scored about 0.2 fewer.",
-        f"3. **DEFCON:** {ev['DEFCON (outfield)']['predicted']:.1%} predicted vs "
+        f"- **Draws:** Dixon-Coles, with rho set per match from the market's draw price. Predicted "
+        f"draws {sc['draw_predicted']:.1%} (the market's level) vs {sc['draw_actual']:.1%} actual; "
+        "the remaining gap is about one standard error, so the market isn't second-guessed.",
+        f"- **DEFCON:** negative-binomial counts (dispersion measured at 1.55): "
+        f"{ev['DEFCON (outfield)']['predicted']:.1%} predicted vs "
         f"{ev['DEFCON (outfield)']['actual']:.1%} actual.",
+        f"- **Lineups:** a 2-gameweek window instead of 6 (start Brier "
+        f"{ev['start']['brier']:.4f}); fits still use 6 gameweeks of data.",
+        "- **Saves:** heavier shrinkage (5,000 minutes); attacking shrinkage stays at 270 (flat).",
+        "",
+        "## Watch list",
+        "",
+        f"- **Goals:** {sc['goals_predicted']:.0f} predicted vs {sc['goals_actual']} actual "
+        "(about one standard error; not acted on).",
+        *(
+            [
+                f"- **Held-out clean sheets:** {held_cs['predicted']:.1%} predicted vs "
+                f"{held_cs['actual']:.1%} actual on four gameweeks."
+            ]
+            if held_cs["n"]
+            else []
+        ),
+        "- **Likely-starter slices** depend on the model's own start probabilities, so they "
+        "shift when the lineup model changes; compare same-row numbers across versions.",
         "",
         "## Limitations",
         "",

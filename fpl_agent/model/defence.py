@@ -5,7 +5,8 @@
   player's time on the pitch, from step 3's goal minutes. Exact to the minute, so a defender
   subbed off at 70 while leading 1-0 keeps his clean sheet if his team concedes at 80.
 - Clean sheet: 0 conceded while on the pitch and CLEAN_SHEET_MIN_MINUTES+ minutes.
-- DEFCON: count ~ Poisson(player's CBIT/CBIRT per 90 x minutes / 90); awarded once at the
+- DEFCON: count ~ negative binomial (mean = player's CBIT/CBIRT per 90 x minutes / 90, variance
+  = DEFCON_DISPERSION x mean; D27 replaced Poisson); awarded once at the
   position's threshold. Player-specific because the differences are BETWEEN players (a ball-winning
   centre-back vs an attacking full-back); within a player the counts look roughly Poisson.
   Shrinkage is LIGHT (DEFCON_PRIOR_MINUTES = 45): out of sample (rates from GW1-4 predicting GW5
@@ -26,14 +27,23 @@ import numpy as np
 from numpy.typing import NDArray
 
 from fpl_agent.data.models import Fixture, Player, PositionCode
-from fpl_agent.model.attack import PRIOR_MINUTES, AttackSamples
+from fpl_agent.model.attack import AttackSamples
 from fpl_agent.model.minutes import FULL_MATCH, MinutesSamples
 from fpl_agent.model.scoreline import FixtureRates
 from fpl_agent.model.scoring_rules import CLEAN_SHEET_MIN_MINUTES, DEFCON_THRESHOLD
 
 DEFAULT_GOALS_PER_TEAM = 1.35  # before any match: typical Premier League scoring per team
 DEFCON_PRIOR_MINUTES = 45.0  # light: chosen out of sample (see module docstring and D21)
-SAVES_PRIOR_MINUTES = PRIOR_MINUTES  # not yet tested out of sample (Phase 2 validation)
+# Tuned out of sample (D27): saves error on the 2025/26 back-test fell steadily with heavier
+# shrinkage (1.534 at 90 minutes, 1.518 at 270, 1.478 at 5000) and levelled off; confirmed on the
+# held-out 2026/27. A keeper's saves depend mainly on the shots his defence allows, which the
+# opponent-attack factor already covers, so his own save history adds little.
+SAVES_PRIOR_MINUTES = 5000.0
+# DEFCON counts vary more than Poisson: measured on the 2025/26 back-test (4,532 full-90 outfield
+# appearances) as mean((actual - rate)^2 / rate) = 1.55 with unbiased rates (8.10 vs 8.13); the
+# held-out 2026/27 GW2-5 gives 1.70. Hits live in the tail (10+/12+), so Poisson under-counted
+# them by ~10%. Counts are negative binomial with this variance/mean ratio (D27).
+DEFCON_DISPERSION = 1.55
 
 
 @dataclass(frozen=True)
@@ -94,6 +104,21 @@ class DefenceSamples:
     saves: NDArray[np.int64]  # 0 for outfield players
 
 
+def overdispersed_counts(
+    mean: NDArray[np.float64], dispersion: float, rng: np.random.Generator
+) -> NDArray[np.int64]:
+    """Counts with the given mean and variance = dispersion x mean (negative binomial).
+
+    dispersion == 1 is Poisson. NB(n, p) with n = mean / (dispersion - 1), p = 1 / dispersion has
+    exactly that mean and variance; zero means give zero counts.
+    """
+    if dispersion <= 1.0:
+        return rng.poisson(mean).astype(np.int64)
+    safe = np.where(mean > 0, mean, 1.0)
+    counts = rng.negative_binomial(safe / (dispersion - 1.0), 1.0 / dispersion)
+    return np.where(mean > 0, counts, 0).astype(np.int64)
+
+
 def simulate_defence(
     attack: AttackSamples,
     minutes: MinutesSamples,
@@ -126,7 +151,7 @@ def simulate_defence(
     clean_sheet = (conceded == 0) & (minutes.minutes >= CLEAN_SHEET_MIN_MINUTES)
 
     dc_rate = np.array([defence.dc90.get(int(p), 0.0) for p in minutes.player])[:, None]
-    defcon_count = rng.poisson(dc_rate * played_share).astype(np.int64)
+    defcon_count = overdispersed_counts(dc_rate * played_share, DEFCON_DISPERSION, rng)
     thresholds = np.array(
         [DEFCON_THRESHOLD[positions[int(p)]] or np.iinfo(np.int64).max for p in minutes.player]
     )[:, None]
