@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from fpl_agent.data import lineups
 from fpl_agent.data.calendar import build_calendar
 from fpl_agent.data.lineups import load_predictions, predict_all
 from fpl_agent.data.models import (
@@ -29,6 +30,13 @@ from fpl_agent.data.snapshots import (
 from tests.conftest import T0, fx, make_bootstrap
 
 PID = 1  # the player under test (plays for team 1)
+
+
+@pytest.fixture(autouse=True)
+def six_gameweek_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests check the excusing logic over GW1-4, so they pin a window that covers it,
+    independent of the tuned WINDOW_GWS (D27)."""
+    monkeypatch.setattr(lineups, "WINDOW_GWS", 6)
 
 
 def season(bootstrap_json: Any) -> Bootstrap:

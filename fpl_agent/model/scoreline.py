@@ -28,7 +28,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from fpl_agent.data.models import Fixture, Player
-from fpl_agent.data.odds import MatchOdds
+from fpl_agent.data.odds import MAX_GOALS, MatchOdds, score_matrix
 from fpl_agent.data.odds_store import SavedOdds
 
 SHRINK_MATCHES = 5.0
@@ -45,6 +45,7 @@ class FixtureRates:
     lambda_away: float
     source: str  # "kalshi-{totals|draw}", "kalshi-saved-{totals|draw}" or "xg-ratings"
     odds_as_of: datetime | None = None  # when a saved price was taken (None for live / fallback)
+    rho: float = 0.0  # Dixon-Coles adjustment (D27); 0 = independent Poisson
 
 
 @dataclass(frozen=True)
@@ -133,15 +134,17 @@ def fixture_rates(
     for f in fixtures:
         live, stored = odds.get(f.id), (saved or {}).get(f.id)
         as_of = None
+        rho = 0.0
         if live is not None:
             lam_h, lam_a, source = live.lambda_home, live.lambda_away, f"kalshi-{live.total_source}"
+            rho = live.rho
         elif stored is not None:
             lam_h, lam_a = stored.lambda_home, stored.lambda_away
-            source, as_of = f"kalshi-saved-{stored.total_source}", stored.taken_at
+            source, as_of, rho = f"kalshi-saved-{stored.total_source}", stored.taken_at, stored.rho
         else:
             lam_h, lam_a = fallback.rates(f)
             source = "xg-ratings"
-        rates[f.id] = FixtureRates(f.id, f.team_h, f.team_a, lam_h, lam_a, source, as_of)
+        rates[f.id] = FixtureRates(f.id, f.team_h, f.team_a, lam_h, lam_a, source, as_of, rho)
     return rates
 
 
@@ -156,12 +159,23 @@ class ScoreSamples:
 def simulate_scores(
     rates: dict[int, FixtureRates], n_sims: int, rng: np.random.Generator
 ) -> dict[int, ScoreSamples]:
-    """Independent Poisson scorelines for each fixture. Fixtures are drawn in id order, so the
-    same seed always gives the same scorelines regardless of dict ordering."""
-    return {
-        fid: ScoreSamples(
-            home=rng.poisson(rates[fid].lambda_home, n_sims),
-            away=rng.poisson(rates[fid].lambda_away, n_sims),
+    """Scorelines for each fixture, drawn in id order so a seed always gives the same results.
+
+    rho == 0: independent Poisson draws. Otherwise sample (home, away) from the Dixon-Coles score
+    table (D27), which reproduces the market's draw price as well as its totals.
+    """
+    out = {}
+    for fid in sorted(rates):
+        r = rates[fid]
+        if r.rho == 0.0:
+            out[fid] = ScoreSamples(
+                home=rng.poisson(r.lambda_home, n_sims), away=rng.poisson(r.lambda_away, n_sims)
+            )
+            continue
+        table = np.asarray(score_matrix(r.lambda_home, r.lambda_away, r.rho)).ravel()
+        cells = rng.choice(table.size, size=n_sims, p=table / table.sum())
+        side = MAX_GOALS + 1
+        out[fid] = ScoreSamples(
+            home=(cells // side).astype(np.int64), away=(cells % side).astype(np.int64)
         )
-        for fid in sorted(rates)
-    }
+    return out

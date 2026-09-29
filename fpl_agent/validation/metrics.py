@@ -119,13 +119,21 @@ def pit_histogram(pit: Sequence[float], bins: int = 10) -> list[float]:
     return [float(c) / max(len(pit), 1) for c in counts]
 
 
-def poisson_score_log_likelihood(lam_h: float, lam_a: float, h: int, a: int) -> float:
-    """Log-probability of the exact score under independent Poisson goals."""
+def poisson_score_log_likelihood(
+    lam_h: float, lam_a: float, h: int, a: int, rho: float = 0.0
+) -> float:
+    """Log-probability of the exact score (independent Poisson, Dixon-Coles adjusted if rho)."""
 
     def lp(lam: float, k: int) -> float:
         return float(-lam + k * np.log(lam) - np.sum(np.log(np.arange(1, k + 1))))
 
-    return lp(lam_h, h) + lp(lam_a, a)
+    tau = {
+        (0, 0): 1 - lam_h * lam_a * rho,
+        (0, 1): 1 + lam_h * rho,
+        (1, 0): 1 + lam_a * rho,
+        (1, 1): 1 - rho,
+    }.get((h, a), 1.0)
+    return lp(lam_h, h) + lp(lam_a, a) + float(np.log(tau))
 
 
 def multiclass_brier(probs: Sequence[Sequence[float]], outcome_index: Sequence[int]) -> float:

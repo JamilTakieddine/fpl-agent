@@ -1015,6 +1015,80 @@ Each change is judged by re-running this back-test.
 
 ---
 
+## D27. Tuning pass: Dixon-Coles draws, negative-binomial DEFCON, a 2-gameweek lineup window
+
+*Phase 2 step 7d, 2026-09-29. Before/after numbers: `docs/validation.md`.*
+
+**Method.** Diagnose first, then change. Tune on 2025/26, confirm on the held-out 2026/27 GW2–5, and adopt
+only what holds up there. Prefer using information we already have over adding tuned knobs.
+
+**1. Draws: Dixon-Coles, with ρ set per match from the market's draw price.**
+- *Diagnosis (380 matches):* market draws 24.8%, our Poisson 23.0%, actual 27.4% (±2.3). Plain Poisson has only
+  two dials (each team's expected goals), which the totals line and home-minus-away already use up, so the
+  draw price was being thrown away. Market totals were well calibrated (over 2.5: 54.3% vs 55.0%).
+- *Change:* Dixon-Coles multiplies the 0–0, 0–1, 1–0 and 1–1 cells. That leaves the mean goals, P(over 2.5)
+  and home-minus-away unchanged, and moves P(draw) by −2ρλhλa·e^−(λh+λa), so ρ is solved in closed form to hit
+  the market's draw exactly. All three 1X2 prices and the totals line are then reproduced. **Nothing is tuned.**
+  Without a totals line, the draw price already sets the total, so ρ = 0.
+- *Result:* 1X2 Brier 0.612 → 0.610 and score log-likelihood −2.865 → −2.861 on 2025/26; **0.658 → 0.653 and
+  −3.076 → −3.068 held out.** Predicted draws are now at the market's 24.8%.
+- *Not done:* pushing draws beyond the market's level. The remaining 24.8% vs 27.3% gap is about one standard
+  error.
+
+**2. DEFCON: negative binomial with dispersion 1.55.**
+- *Diagnosis:* rates were unbiased (8.10 expected vs 8.13 actual over 4,532 full-90 outfield appearances), but
+  counts varied **1.55×** more than Poisson (1.70 held out). Hits happen in the tail (10+/12+), so they came
+  out about 10% short.
+- *Change:* negative-binomial counts with the same mean and variance = 1.55 × mean
+  (`defence.overdispersed_counts`).
+- *Result:* DEFCON predicted 4.9% → 5.5% vs 5.4% actual (Brier 0.0422 → 0.0413), and **held out 5.2% → 6.0% vs
+  5.7% (Brier 0.0473 → 0.0468)**.
+
+**3. Settings swept out of sample** (`scripts/sweep_parameters.py`, the same seeds for every run):
+- *Attacking shrinkage (270 minutes):* flat from 270 to 1,080 (goal log loss 0.1034 vs 0.1033). **Kept.**
+- *Saves shrinkage:* error 1.534 (90) → 1.518 (270) → 1.478 (5,000), levelling off, so **5,000**. A keeper's
+  saves depend on the shots his defence allows, which the opponent factor already covers.
+- *Lineup window × prior:* shorter was better all the way down; the best was **window 2, prior 1** (start Brier
+  0.0974 → 0.0868, points error 1.024 → 0.997, ranking 0.690 → 0.704). A prior of 0.5 over-reacts, and 2–4
+  drag back toward stale roles. Roles change fast: signings, dropped players, formation switches.
+- *Held-out confirmation of the chosen settings:* start Brier 0.0957 → 0.0894; points error with history
+  1.954 → 1.910; ranking 0.435 → 0.465.
+- *Card-rate shrinkage:* not swept, since it's worth about 0.2 points a match in total.
+- **`WINDOW_GWS = 2` (the lineup model's memory) is split from `HISTORY_GWS = 6`** (live data loaded for the
+  minutes and bonus fits). Before the split, one constant did both jobs, and shrinking it would have starved
+  those fits.
+
+**Combined result, 7b → 7d:**
+
+| | 2025/26 | 2026/27 held out |
+|---|---|---|
+| Ranking, players with history (points-per-game 0.385 / 0.344) | 0.540 → **0.585** | 0.438 → **0.464** |
+| Points error, players with history | 1.638 → **1.579** | 1.945 → **1.912** |
+| Start Brier | 0.0974 → **0.0868** | 0.0955 → **0.0894** |
+
+Bias stays near 0, P(6+) is 7.2% vs 7.0%, and the PIT is still flat.
+
+**Also.**
+- *Measurement caveat:* "likely starter" slices depend on the model's own start probabilities, so they shift
+  when the lineup model changes. Compare versions on the same rows instead. For example, captaincy +72 points
+  over 2025/26 in the new likely-starter pool vs +28 in the old one; top 10 +0.74 points per player, better in
+  25 of 37 gameweeks.
+- **The report's findings section is now data-driven** ("fixed in 7d" and "watch"). The 7c text had hardcoded
+  numbers that went stale.
+- `window_events` reads `WINDOW_GWS` at call time. It was a default argument, fixed when the function was defined,
+  so changing the setting had no effect.
+
+**Alternatives rejected.**
+- *A global draw-inflation or goals-deflation factor fitted on 2025/26.* That tunes to one season's luck; ρ from
+  market prices needs no fitting.
+- *Overdispersion via an opponent-strength effect for DEFCON.* Plausible but unmeasured; a single dispersion
+  number fixed the calibration in both seasons.
+- *Recency weighting* (exponential decay instead of a hard window). A possible refinement; the hard window already
+  captured most of the gain.
+- *A 1-gameweek window.* Nearly as good on starts, but it ranks worse.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from fpl_agent.data.calendar import Calendar, build_calendar
-from fpl_agent.data.lineups import WINDOW_GWS, window_events
+from fpl_agent.data.lineups import history_events, window_events
 from fpl_agent.data.models import (
     Bootstrap,
     Event,
@@ -38,7 +38,7 @@ from fpl_agent.data.models import (
     Player,
     Team,
 )
-from fpl_agent.data.odds import MatchOdds, outcome_probs, split_total, total_from_line
+from fpl_agent.data.odds import MatchOdds, dc_rho, outcome_probs, split_total, total_from_line
 from fpl_agent.validation.history import (
     ClosingOdds,
     HistoricalRow,
@@ -282,6 +282,7 @@ def closing_to_match_odds(fixture: Fixture, o: ClosingOdds) -> MatchOdds:
     goal_total = total_from_line(2.5, over / (over + under))
     lam_h, lam_a = split_total(goal_total, p_home, p_away)
     _, model_draw, _ = outcome_probs(lam_h, lam_a)
+    rho = dc_rho(lam_h, lam_a, p_draw)
     return MatchOdds(
         fixture_id=fixture.id,
         p_home=p_home,
@@ -295,10 +296,11 @@ def closing_to_match_odds(fixture: Fixture, o: ClosingOdds) -> MatchOdds:
         total_source="totals",
         totals_lines=1,
         draw_gap=model_draw - p_draw,
+        rho=rho,
     )
 
 
-def build_case(season: Season, target: int, window: int = WINDOW_GWS) -> GameweekCase:
+def build_case(season: Season, target: int, window: int | None = None) -> GameweekCase:
     fixtures = _fixtures_as_of(season, target)
     bootstrap = Bootstrap(
         events=_events(season, target),
@@ -309,11 +311,9 @@ def build_case(season: Season, target: int, window: int = WINDOW_GWS) -> Gamewee
         game_config=season.template.game_config,
     )
     calendar = build_calendar(bootstrap, fixtures)
-    lives = {
-        gw: live_for(season.rows_by_gw[gw])
-        for gw in window_events(target, window)
-        if gw in season.rows_by_gw
-    }
+    # Live data for the fits (minutes, bonus); the lineup model filters to its own window (D27).
+    gws = history_events(target) if window is None else window_events(target, window)
+    lives = {gw: live_for(season.rows_by_gw[gw]) for gw in gws if gw in season.rows_by_gw}
     gw = calendar.get(target)
     odds, unpriced = season.odds_source(target, list(gw.fixtures), bootstrap, gw.deadline)
     return GameweekCase(

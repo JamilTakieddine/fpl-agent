@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+import numpy as np
 import pytest
 
 from fpl_agent.data.kalshi import KALSHI_API, KalshiClient, KalshiMarket, match_code
@@ -14,13 +15,18 @@ from fpl_agent.data.odds import (
     KALSHI_TO_FPL_NAME,
     MIN_VOLUME,
     build_odds,
+    dc_outcome_probs,
+    dc_rho,
     fpl_team_ids,
     outcome_probs,
     p_over,
+    score_matrix,
     solve_lambdas,
     total_from_line,
     total_from_totals,
 )
+from fpl_agent.data.odds_store import SavedOdds
+from fpl_agent.model.scoreline import FixtureRates, simulate_scores
 from tests.conftest import FakeResponse, FakeSession, load_fixture
 
 
@@ -331,3 +337,85 @@ def test_totals_for_another_match_do_not_attach(bootstrap_json: Any) -> None:
 
 def test_match_code_links_series() -> None:
     assert match_code("KXEPLTOTAL-26SEP20FULMUN") == match_code("KXEPLGAME-26SEP20FULMUN")
+
+
+# --- Dixon-Coles (D27) --------------------------------------------------------------------------
+
+# The closed-form rho assumes the full (infinite) score table; the probability functions
+# normalise over the table cut at MAX_GOALS, which moves results by under one in a million.
+TRUNCATION_TOL = 1e-5
+
+
+@pytest.mark.parametrize(
+    ("lam_h", "lam_a", "shift"), [(1.6, 1.1, 0.02), (2.2, 0.7, 0.03), (1.2, 1.2, -0.01)]
+)
+def test_dixon_coles_hits_the_draw_and_keeps_everything_else(
+    lam_h: float, lam_a: float, shift: float
+) -> None:
+    h0, d0, a0 = outcome_probs(lam_h, lam_a)
+    rho = dc_rho(lam_h, lam_a, d0 + shift)
+    h1, d1, a1 = dc_outcome_probs(lam_h, lam_a, rho)
+    assert d1 == pytest.approx(d0 + shift, abs=TRUNCATION_TOL)
+    assert h1 - a1 == pytest.approx(h0 - a0, abs=TRUNCATION_TOL)
+    m = score_matrix(lam_h, lam_a, rho)
+    over = sum(m[i][j] for i in range(11) for j in range(11) if i + j > 2)
+    mean = sum((i + j) * m[i][j] for i in range(11) for j in range(11))
+    assert over == pytest.approx(
+        sum(score_matrix(lam_h, lam_a)[i][j] for i in range(11) for j in range(11) if i + j > 2),
+        abs=TRUNCATION_TOL,
+    )
+    assert mean == pytest.approx(
+        sum((i + j) * score_matrix(lam_h, lam_a)[i][j] for i in range(11) for j in range(11)),
+        abs=TRUNCATION_TOL,
+    )
+
+
+def test_dixon_coles_rho_stays_valid_and_zero_means_poisson() -> None:
+    rho = dc_rho(2.5, 2.0, 0.9)  # an impossible draw target: clamped
+    m = score_matrix(2.5, 2.0, rho)
+    assert all(x >= 0 for row in m for x in row)
+    assert sum(sum(row) for row in m) == pytest.approx(1.0)
+    assert dc_outcome_probs(1.4, 1.1, 0.0) == outcome_probs(1.4, 1.1)
+
+
+def test_totals_markets_set_rho_from_the_draw_price(bootstrap_json: Any) -> None:
+    boot = Bootstrap.model_validate(bootstrap_json)
+    f, home, away = first_gw6(boot)
+    totals = [over_line(x, p_over(x, 3.0), event="KXEPLTOTAL-EV") for x in (1.5, 2.5, 3.5)]
+    with_totals, _ = build_odds(
+        synthetic_event(boot, home, away, f.kickoff_time), [f], boot, totals
+    )
+    o = with_totals[f.id]
+    _, draw, _ = dc_outcome_probs(o.lambda_home, o.lambda_away, o.rho)
+    assert o.rho != 0.0 and draw == pytest.approx(o.p_draw, abs=1e-6)
+    without, _ = build_odds(synthetic_event(boot, home, away, f.kickoff_time), [f], boot)
+    assert without[f.id].rho == 0.0  # only 1X2: the draw already set the total
+
+
+def test_simulated_scores_reproduce_the_dixon_coles_draw_rate() -> None:
+    rho = dc_rho(1.5, 1.2, 0.30)
+    rates = {1: FixtureRates(1, 1, 2, 1.5, 1.2, "test", None, rho)}
+    s = simulate_scores(rates, 200_000, np.random.default_rng(0))[1]
+    _, draw, _ = dc_outcome_probs(1.5, 1.2, rho)
+    assert (s.home == s.away).mean() == pytest.approx(draw, abs=0.004)
+    assert (s.home + s.away).mean() == pytest.approx(2.7, abs=0.02)
+
+
+def test_saved_odds_without_rho_still_load() -> None:
+    old = {
+        "fixture_id": 1,
+        "p_home": 0.5,
+        "p_draw": 0.25,
+        "p_away": 0.25,
+        "lambda_home": 1.5,
+        "lambda_away": 1.0,
+        "overround": 0.0,
+        "volume": 1.0,
+        "max_spread": 0.0,
+        "total_source": "totals",
+        "totals_lines": 1,
+        "draw_gap": 0.0,
+        "taken_at": "2026-09-01T00:00:00Z",
+        "kickoff": "2026-09-02T00:00:00Z",
+    }
+    assert SavedOdds.model_validate(old).rho == 0.0

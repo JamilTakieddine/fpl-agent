@@ -181,7 +181,7 @@ def test_load_predictions_fetches_one_live_per_window_gameweek(bootstrap_json: A
     boot = Bootstrap.model_validate(bootstrap_json)
     load_predictions(FplClient(http), build_calendar(boot, []), 6)
     live_calls = [c for c in http.calls if "/live/" in c[1]]
-    assert len(live_calls) == 5  # GW1-5: not one per player
+    assert len(live_calls) == len(window_events(6))  # one per window gameweek, not per player
 
 
 # --- starter top-up (D19) --------------------------------------------------------------------

@@ -65,7 +65,9 @@ def summarise_matches(matches: list[MatchRecord]) -> None:
     probs = [(m.p_home, m.p_draw, m.p_away) for m in matches]
     ll = np.mean(
         [
-            poisson_score_log_likelihood(m.lambda_home, m.lambda_away, m.home_goals, m.away_goals)
+            poisson_score_log_likelihood(
+                m.lambda_home, m.lambda_away, m.home_goals, m.away_goals, m.rho
+            )
             for m in matches
         ]
     )

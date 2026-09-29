@@ -105,4 +105,5 @@ def test_writers_embed_the_same_numbers() -> None:
     md = render_markdown(report)
     starters = report["2025-26"]["points"]["vs_benchmarks_likely_starters"]
     assert f"**{starters['model']['mae']:.2f}**" in md
-    assert "## To tune in 7d" in md
+    assert "## Changed in 7d" in md and "## Watch list" in md
+    assert "Held-out clean sheets" not in md  # no GK/DEF rows in the synthetic data: line skipped
