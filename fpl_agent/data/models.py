@@ -75,6 +75,10 @@ class Player(FplModel):
     own_goals: int
     defensive_contribution: int  # season total CBIT (DEF) / CBIRT (MID, FWD) count
     saves: int  # season total
+    ep_next: float | None  # FPL's own expected points for the next round (a sanity check only)
+    yellow_cards: int  # season totals
+    red_cards: int
+    penalties_saved: int
     expected_goals_conceded: float  # xG conceded while he was on the pitch, season total
 
 

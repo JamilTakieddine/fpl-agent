@@ -774,6 +774,55 @@ shape itself is fine.)
 
 ---
 
+## D22. Points: discipline events, a pure points function, one seeded gameweek entry point
+
+*Phase 2 step 5, 2026-09-29*
+
+**Context.** Remaining scoring actions, per 90 minutes this season:
+- **Yellow cards:** DEF 0.17, MID 0.19, FWD 0.23 (−1 each), so about −0.2 points a match.
+- **Red cards:** 0.005–0.010 (−3).
+- **Penalty saves:** GK 0.020 (+5), so about +0.1 a match for a keeper.
+- **Penalty misses:** FWD 0.019 (−2).
+- **Own goals:** about 0.01 (−2).
+- The `mng_*` keys are all 0 this season.
+
+**Decisions.**
+- **`fpl_agent/model/discipline.py`:** yellow and red cards are drawn per match as yes/no from the player's own
+  rate × minutes. **A red clears the yellow**, because a second-yellow dismissal scores −3 only. Goalkeeper
+  penalty saves are a Poisson count. Rates are shrunk by 270 minutes; that's untested out of sample and on the
+  validation list. **Skipped:** penalty misses (about −0.04 a match) and own goals (about −0.02).
+- **`fpl_agent/model/points.py` is pure arithmetic, with no randomness:**
+  - appearance (1 for 1–59 minutes, 2 for 60+), goals, assists, clean sheet;
+  - goals conceded (per 2, rounded down), saves (per 3, rounded down), DEFCON award, cards, penalty saves;
+  - **every value comes from `game_config.scoring`.** Only the thresholds come from `scoring_rules.py`.
+
+  Double gameweeks sum both matches. The randomness stays in the simulators, so points can be tested exactly
+  (a defender with two goals and a clean sheet scores exactly 2 + 12 + 4).
+- **The output (`PointsSamples`):**
+  - the **players × simulations points matrix** (27 MB at 10,000 simulations), which Phase 3 needs in full;
+  - **`played`** (any minutes in the gameweek), which bench auto-subs (rule 2) trigger on;
+  - each player's **mean per component**, to explain a projection. Keeping every component per simulation
+    would be about 400 MB.
+- **`fpl_agent/model/gameweek.py`, `simulate_gameweek()`:** steps 1–5 in a fixed order from one seed. It takes
+  already-fetched data, not an API client, so it's offline-testable and cheap to call repeatedly. A full
+  gameweek takes about 2.6s.
+- **`python -m fpl_agent.model`:** a read-only live check of your squad's expected points and haul chances.
+  Recording snapshots and odds stays with `python -m fpl_agent.data`.
+
+**Sanity check against FPL's `ep_next`:**
+- Correlation **0.78**; means 1.72 (ours, no bonus yet) against 1.84.
+- The biggest gaps are FPL's form artifacts. `ep_next` had defenders coming off a big week at 9–11 points;
+  we have them at 3–4 for one match.
+- `ep_next` isn't the truth. Step 7 back-tests against actual points.
+
+**Alternatives.**
+- *Randomness inside the points function.* It can't be tested exactly.
+- *Storing the full per-component matrices.* About 15× the memory.
+- *Including penalty misses and own goals.* Negligible.
+- *An API client inside the simulation.* It couldn't run offline or repeatedly without refetching.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

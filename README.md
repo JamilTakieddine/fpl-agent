@@ -9,8 +9,8 @@ Status:
   availability-flag snapshots, and Kalshi match odds converted to expected goals.
 - **Phase 2 (Monte Carlo simulations): in progress.** Done: scorelines from odds (live Kalshi → saved
   Kalshi → xG-ratings fallback), the minutes simulation with the starter top-up, attacking events
-  (goals and assists given the scoreline), and defensive events (clean sheets, goals conceded, saves,
-  DEFCON). Next: turning events into FPL points.
+  (goals and assists given the scoreline), defensive events (clean sheets, goals conceded, saves,
+  DEFCON), and FPL points per player per simulation. Next: bonus points, then validation.
 
 ## Setup
 ```bash
@@ -23,7 +23,8 @@ cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID
 
 ## Usage
 ```bash
-python -m fpl_agent.data          # live read-only check: deadlines, next 6 GWs, H2H opponent,
+python -m fpl_agent.model         # simulate the next gameweek: your squad's xPts and haul chances
+python -m fpl_agent.data          # live check + records snapshots/odds: deadlines, next 6 GWs, H2H opponent,
                                   # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)
 python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
