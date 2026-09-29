@@ -3,6 +3,7 @@
 Input:  data/cache/{bootstrap,fixtures,my_team}.json   (raw API responses, gitignored)
         data/cache/{h2h_matches_gw6,opp_history,opp_picks_gw5,live_gw5}.json
         data/cache/kalshi_open_KXEPLGAME.json, kalshi_settled_KXEPLTOTAL.json (public market data)
+        data/cache/picks/*.json   (H2H league picks: anonymised auto-sub/captaincy cases)
 Output: tests/fixtures/*.json                           (trimmed + anonymized, committed)
 
 Public repo: other managers' names and entry ids (and mine) are replaced with fake ones.
@@ -56,6 +57,70 @@ class Anonymizer:
         return m
 
 
+def autosub_cases(boot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Real team-gameweeks covering every auto-sub/captaincy/chip path, anonymised.
+
+    From data/cache/picks/<entry>_<gw>.json (H2H league picks). Kept per case: bench order and
+    armband as FPL returned them (AFTER its auto-subs), FPL's own automatic_subs and official
+    points, and each of the 15 players' position, minutes and points. No entry ids or names.
+    """
+    positions = {p["id"]: p["element_type"] for p in boot["elements"]}
+    lives = {
+        gw: {e["id"]: e["stats"] for e in load(f"live_gw{gw}")["elements"]}
+        for gw in range(1, 6)
+        if (CACHE / f"live_gw{gw}.json").exists()
+    }
+    wanted = {"gk_swap": 2, "multi_sub": 2, "vice_captain": 2, "3xc": 1, "bboost": 1, "none": 1}
+    cases: list[dict[str, Any]] = []
+    for path in sorted((CACHE / "picks").glob("*.json")):
+        gw = int(path.stem.split("_")[1])
+        d = json.loads(path.read_text())
+        if gw not in lives or any(p["element"] not in positions for p in d["picks"]):
+            continue
+        subs = d["automatic_subs"]
+        cap = next(p["element"] for p in d["picks"] if p["is_captain"])
+        tags = []
+        if any(positions[s["element_out"]] == 1 for s in subs):
+            tags.append("gk_swap")
+        if len(subs) > 1:
+            tags.append("multi_sub")
+        if lives[gw].get(cap, {}).get("minutes", 0) == 0:
+            tags.append("vice_captain")
+        if d["active_chip"] in ("3xc", "bboost"):
+            tags.append(d["active_chip"])
+        if not tags and not subs:
+            tags.append("none")
+        take = [t for t in tags if wanted.get(t, 0) > 0]
+        if not take:
+            continue
+        for t in take:
+            wanted[t] -= 1
+        players = [p["element"] for p in d["picks"]]
+        cases.append(
+            {
+                "covers": take,
+                "picks": [
+                    {k: p[k] for k in ("element", "position", "is_captain", "is_vice_captain")}
+                    for p in d["picks"]
+                ],
+                "automatic_subs": [
+                    {"element_in": s["element_in"], "element_out": s["element_out"]} for s in subs
+                ],
+                "active_chip": d["active_chip"],
+                "official_points": d["entry_history"]["points"],
+                "players": {
+                    str(e): {
+                        "element_type": positions[e],
+                        "minutes": lives[gw].get(e, {}).get("minutes", 0),
+                        "points": lives[gw].get(e, {}).get("total_points", 0),
+                    }
+                    for e in players
+                },
+            }
+        )
+    return cases
+
+
 def load(name: str) -> Any:
     return json.loads((CACHE / f"{name}.json").read_text())
 
@@ -73,7 +138,10 @@ def main() -> None:
         "element_types": boot["element_types"],
         "chips": boot["chips"],
         "elements": [p for p in boot["elements"] if p["id"] in keep],
-        "game_config": {"scoring": boot["game_config"]["scoring"]},
+        "game_config": {
+            "scoring": boot["game_config"]["scoring"],
+            "rules": boot["game_config"]["rules"],
+        },
     }
     # "stats" (per-player match events) is most of the size and unused by the models.
     trimmed_fixtures = [
@@ -108,6 +176,7 @@ def main() -> None:
         ("live_gw5", live_gw5),
         ("kalshi_markets", kalshi),
         ("kalshi_totals_settled", kalshi_totals),
+        ("autosub_cases", autosub_cases(boot)),
     ):
         path = OUT / f"{name}.json"
         path.write_text(json.dumps(obj, indent=1, ensure_ascii=False) + "\n")

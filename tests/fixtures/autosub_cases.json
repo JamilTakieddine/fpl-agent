@@ -1,0 +1,1650 @@
+[
+ {
+  "covers": [
+   "none"
+  ],
+  "picks": [
+   {
+    "element": 109,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 112,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 4,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 504,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 542,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 557,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 397,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 552,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 10,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 411,
+    "position": 11,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 496,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 237,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 61,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 31,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [],
+  "active_chip": null,
+  "official_points": 53,
+  "players": {
+   "109": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 6
+   },
+   "112": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "4": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 5
+   },
+   "504": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 6
+   },
+   "542": {
+    "element_type": 3,
+    "minutes": 79,
+    "points": 2
+   },
+   "557": {
+    "element_type": 3,
+    "minutes": 75,
+    "points": 6
+   },
+   "397": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 8
+   },
+   "552": {
+    "element_type": 4,
+    "minutes": 66,
+    "points": 2
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 11
+   },
+   "411": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 2
+   },
+   "496": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 2
+   },
+   "237": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 9
+   },
+   "61": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "31": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "multi_sub"
+  ],
+  "picks": [
+   {
+    "element": 1,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 229,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 579,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 449,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 387,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 426,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 399,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 13,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 10,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 106,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 497,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 499,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 159,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 223,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 449,
+    "element_out": 499
+   },
+   {
+    "element_in": 368,
+    "element_out": 159
+   }
+  ],
+  "active_chip": null,
+  "official_points": 61,
+  "players": {
+   "1": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 6
+   },
+   "229": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 6
+   },
+   "579": {
+    "element_type": 2,
+    "minutes": 20,
+    "points": 1
+   },
+   "449": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 3
+   },
+   "387": {
+    "element_type": 2,
+    "minutes": 62,
+    "points": 2
+   },
+   "426": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "399": {
+    "element_type": 3,
+    "minutes": 27,
+    "points": 8
+   },
+   "13": {
+    "element_type": 3,
+    "minutes": 67,
+    "points": 3
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 8
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 11
+   },
+   "106": {
+    "element_type": 4,
+    "minutes": 82,
+    "points": 0
+   },
+   "497": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "499": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "159": {
+    "element_type": 3,
+    "minutes": 0,
+    "points": 0
+   },
+   "223": {
+    "element_type": 4,
+    "minutes": 62,
+    "points": 2
+   }
+  }
+ },
+ {
+  "covers": [
+   "bboost"
+  ],
+  "picks": [
+   {
+    "element": 1,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 233,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 449,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 387,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 12,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 399,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 154,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 13,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 10,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 106,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 497,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 499,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 142,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 223,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [],
+  "active_chip": "bboost",
+  "official_points": 75,
+  "players": {
+   "1": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 14
+   },
+   "233": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 11
+   },
+   "449": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 0
+   },
+   "387": {
+    "element_type": 2,
+    "minutes": 8,
+    "points": 1
+   },
+   "12": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 8
+   },
+   "399": {
+    "element_type": 3,
+    "minutes": 45,
+    "points": 1
+   },
+   "154": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 5
+   },
+   "13": {
+    "element_type": 3,
+    "minutes": 80,
+    "points": 6
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 3
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 12
+   },
+   "106": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 1
+   },
+   "497": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "499": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "142": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "223": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "vice_captain"
+  ],
+  "picks": [
+   {
+    "element": 1,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 233,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 449,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 387,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 499,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 12,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 399,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 13,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 154,
+    "position": 10,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 464,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 497,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 13,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 142,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 223,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 499,
+    "element_out": 165
+   }
+  ],
+  "active_chip": null,
+  "official_points": 36,
+  "players": {
+   "1": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 1
+   },
+   "233": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 5
+   },
+   "449": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 13
+   },
+   "387": {
+    "element_type": 2,
+    "minutes": 5,
+    "points": 1
+   },
+   "499": {
+    "element_type": 2,
+    "minutes": 18,
+    "points": 1
+   },
+   "12": {
+    "element_type": 3,
+    "minutes": 80,
+    "points": 2
+   },
+   "399": {
+    "element_type": 3,
+    "minutes": 84,
+    "points": 8
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 80,
+    "points": 2
+   },
+   "13": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 1
+   },
+   "154": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "464": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 0
+   },
+   "497": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   },
+   "142": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "223": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "multi_sub"
+  ],
+  "picks": [
+   {
+    "element": 226,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 202,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 387,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 230,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 73,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 237,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 426,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 454,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 552,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 463,
+    "position": 10,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 411,
+    "position": 11,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 412,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 499,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 419,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 159,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 73,
+    "element_out": 419
+   },
+   {
+    "element_in": 552,
+    "element_out": 159
+   }
+  ],
+  "active_chip": null,
+  "official_points": 45,
+  "players": {
+   "226": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 7
+   },
+   "202": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 3
+   },
+   "387": {
+    "element_type": 2,
+    "minutes": 62,
+    "points": 2
+   },
+   "230": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 6
+   },
+   "73": {
+    "element_type": 3,
+    "minutes": 15,
+    "points": 1
+   },
+   "237": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 9
+   },
+   "426": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "454": {
+    "element_type": 3,
+    "minutes": 75,
+    "points": 9
+   },
+   "552": {
+    "element_type": 4,
+    "minutes": 66,
+    "points": 2
+   },
+   "463": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   },
+   "411": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 2
+   },
+   "412": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 1
+   },
+   "499": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "419": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "159": {
+    "element_type": 3,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "3xc"
+  ],
+  "picks": [
+   {
+    "element": 412,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 356,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 229,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 357,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 204,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 15,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 427,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 236,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 411,
+    "position": 10,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 346,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 28,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 499,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 452,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 249,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 204,
+    "element_out": 499
+   }
+  ],
+  "active_chip": "3xc",
+  "official_points": 49,
+  "players": {
+   "412": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 1
+   },
+   "356": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 2
+   },
+   "229": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 6
+   },
+   "357": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 0
+   },
+   "204": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "15": {
+    "element_type": 3,
+    "minutes": 75,
+    "points": 11
+   },
+   "427": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "236": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 11
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 8
+   },
+   "411": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 2
+   },
+   "346": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 1
+   },
+   "28": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "499": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "452": {
+    "element_type": 3,
+    "minutes": 0,
+    "points": 0
+   },
+   "249": {
+    "element_type": 4,
+    "minutes": 78,
+    "points": 8
+   }
+  }
+ },
+ {
+  "covers": [
+   "gk_swap"
+  ],
+  "picks": [
+   {
+    "element": 109,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 4,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 469,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 418,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 175,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 237,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 426,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 427,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 411,
+    "position": 10,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 497,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 31,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 212,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 272,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 109,
+    "element_out": 497
+   },
+   {
+    "element_in": 175,
+    "element_out": 31
+   },
+   {
+    "element_in": 237,
+    "element_out": 212
+   }
+  ],
+  "active_chip": null,
+  "official_points": 51,
+  "players": {
+   "109": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 6
+   },
+   "4": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 5
+   },
+   "469": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 2
+   },
+   "418": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "175": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "237": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 9
+   },
+   "426": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "427": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 8
+   },
+   "411": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 2
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 11
+   },
+   "497": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "31": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "212": {
+    "element_type": 3,
+    "minutes": 0,
+    "points": 0
+   },
+   "272": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "gk_swap"
+  ],
+  "picks": [
+   {
+    "element": 109,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 4,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 469,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 418,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 175,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 31,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 426,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 427,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 411,
+    "position": 10,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 497,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 212,
+    "position": 13,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 237,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 272,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 109,
+    "element_out": 497
+   },
+   {
+    "element_in": 31,
+    "element_out": 212
+   }
+  ],
+  "active_chip": null,
+  "official_points": 94,
+  "players": {
+   "109": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 0
+   },
+   "4": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 8
+   },
+   "469": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 6
+   },
+   "418": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 4
+   },
+   "175": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 2
+   },
+   "31": {
+    "element_type": 2,
+    "minutes": 11,
+    "points": 1
+   },
+   "426": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 23
+   },
+   "427": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 11
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 4
+   },
+   "411": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 13
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 90,
+    "points": 9
+   },
+   "497": {
+    "element_type": 1,
+    "minutes": 0,
+    "points": 0
+   },
+   "212": {
+    "element_type": 3,
+    "minutes": 0,
+    "points": 0
+   },
+   "237": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 4
+   },
+   "272": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ },
+ {
+  "covers": [
+   "vice_captain"
+  ],
+  "picks": [
+   {
+    "element": 350,
+    "position": 1,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 449,
+    "position": 2,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 4,
+    "position": 3,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 388,
+    "position": 4,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 387,
+    "position": 5,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 368,
+    "position": 6,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 154,
+    "position": 7,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 399,
+    "position": 8,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 427,
+    "position": 9,
+    "is_captain": false,
+    "is_vice_captain": true
+   },
+   {
+    "element": 43,
+    "position": 10,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 569,
+    "position": 11,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 412,
+    "position": 12,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 165,
+    "position": 13,
+    "is_captain": true,
+    "is_vice_captain": false
+   },
+   {
+    "element": 142,
+    "position": 14,
+    "is_captain": false,
+    "is_vice_captain": false
+   },
+   {
+    "element": 223,
+    "position": 15,
+    "is_captain": false,
+    "is_vice_captain": false
+   }
+  ],
+  "automatic_subs": [
+   {
+    "element_in": 43,
+    "element_out": 165
+   }
+  ],
+  "active_chip": null,
+  "official_points": 49,
+  "players": {
+   "350": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 8
+   },
+   "449": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 13
+   },
+   "4": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 1
+   },
+   "388": {
+    "element_type": 2,
+    "minutes": 90,
+    "points": 4
+   },
+   "387": {
+    "element_type": 2,
+    "minutes": 5,
+    "points": 1
+   },
+   "368": {
+    "element_type": 3,
+    "minutes": 80,
+    "points": 2
+   },
+   "154": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "399": {
+    "element_type": 3,
+    "minutes": 84,
+    "points": 8
+   },
+   "427": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 2
+   },
+   "43": {
+    "element_type": 3,
+    "minutes": 90,
+    "points": 4
+   },
+   "569": {
+    "element_type": 4,
+    "minutes": 79,
+    "points": 2
+   },
+   "412": {
+    "element_type": 1,
+    "minutes": 90,
+    "points": 4
+   },
+   "165": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   },
+   "142": {
+    "element_type": 2,
+    "minutes": 0,
+    "points": 0
+   },
+   "223": {
+    "element_type": 4,
+    "minutes": 0,
+    "points": 0
+   }
+  }
+ }
+]

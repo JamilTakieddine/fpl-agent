@@ -1089,6 +1089,70 @@ Bias stays near 0, P(6+) is 7.2% vs 7.0%, and the PIT is still flat.
 
 ---
 
+## D28. Phase 3 design and defaults; part 1, the rules engine, verified against FPL
+
+*Phase 3 part 1, 2026-09-29*
+
+**Phase 3 design** (explained and approved before building):
+- **The objective is H2H win probability.** Your team and your opponent's are scored in the *same* 10,000 simulated
+  gameweeks (players you both own cancel out, as in real H2H). Candidate decisions are compared on identical draws.
+- **Defaults chosen by the user:**
+  - **Buffer 3 points**: maximize P(my points − opponent's ≥ 3), the low end of the 3–5 idea in Q5.
+  - **Points guard 1.0**: never give up more than 1.0 expected point against the highest-expected-points choice,
+    to protect overall rank.
+  - Both are to be revisited with evidence: Phase 3 will report what each buffer size costs in plain win
+    probability.
+- **Transfers and chips are recommendation-only in Phase 3.** They're reported, not executed, until the Phase 5
+  multi-week planner exists. One-week-at-a-time transfers are the classic way to burn value. Chips are
+  scheduled by Phase 5, **which must run well before the GW19 deadline**, when unused first-set chips are
+  forfeited (target: around GW14–15).
+- **Build order:**
+  1. rules engine;
+  2. team scoring over the simulations (vectorized, tested against the rules engine);
+  3. opponent model (last gameweek's squad plus a spread over their likely captain);
+  4. lineup, captain, vice-captain and bench optimizer (staged search);
+  5. transfer recommendations;
+  6. payload builder, dry run by default (the transfers endpoint needs a spike first);
+  7. back-test of the optimizer on real gameweeks.
+
+**Part 1, the rules engine** (`fpl_agent/optimize/rules.py`):
+- **Small pure functions, scalar and readable.** They're the *reference specification*: part 2's fast vectorized
+  scorer will be tested against them. They cover:
+  - squad validity (counts, club limit, budget) and formation validity;
+  - team-sheet validity; auto-subs;
+  - captain and vice-captain multipliers (Triple Captain ×3); team points (Bench Boost counts all 15 with no
+    auto-subs);
+  - transfer cost and free-transfer banking; selling price;
+  - chip windows and forfeiture.
+- **Every limit is read from the API:** `element_types` (squad counts, formation minimums and maximums) and the
+  new `GameConfig.rules` (club limit, squad size, budget, extra free transfers, sell-on fee). Nothing FPL publishes
+  is hardcoded.
+- **Violations are readable messages**, for example "4 players from team 7 (max 3)", so logs and the email can
+  say why.
+
+**Verified against FPL itself**, using the picks of the 11 real managers in the H2H league for GW1–5 (55
+team-gameweeks, cached in the gitignored `data/cache/picks/`):
+- **FPL returns the lineup *after* its auto-subs**, together with an `automatic_subs` list. Undoing those gives
+  the original team sheet.
+- From the original team sheets, **our auto-subs are identical to FPL's in 53 of 53 team-gameweeks** (26 had
+  substitutions: 4 goalkeeper swaps and 12 with 2+ subs).
+- **Our team points equal FPL's official score in 55 of 55**, including 2 vice-captain takeovers, Triple Captain,
+  Bench Boost and Free Hit.
+- **This settles the ordering question for rule 2:** bench players are tried in priority order, each replacing the
+  first non-playing outfield starter it legally can, and legality is judged on the *final* XI (a defender may
+  replace a forward if another forward remains).
+- **9 anonymized cases covering every path** (no entry IDs or names) are a permanent regression test
+  (`tests/fixtures/autosub_cases.json`, rebuilt by `scripts/record_fixtures.py`).
+
+**Alternatives.**
+- *Hardcoding the squad and formation limits.* They're in the API.
+- *True/False validity checks.* They can't explain a rejection.
+- *Writing only the fast vectorized version.* It would be hard to read and to trust; the readable reference and
+  a test that the two agree is safer.
+- *Assuming the auto-sub order.* Two plausible readings differ in edge cases; FPL's own data decided.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1179,7 +1243,7 @@ Alternatives: drop the surprise factor (ignores measured risk, and still misses 
 team-sheet model that forces exactly 11 in every simulation (it also captures who-replaces-whom
 correlation, but it's heavier; possibly later).
 
-**Q5. Should the H2H objective require winning by a buffer?** *(User idea, 2026-09-29, for Phase 3.)*
+**Q5. Should the H2H objective require winning by a buffer?** *(User idea, 2026-09-29, for Phase 3.)* *Default chosen in D28: buffer 3, points guard 1.0; Phase 3 will report what each buffer size costs.*
 Aim to beat the opponent by a margin of **3–5 points**, deliberately small so the model's outputs are still
 trusted. With simulated gameweeks this is one parameter: maximize P(my points − opponent's points ≥ buffer)
 instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
