@@ -680,6 +680,48 @@ FWD **1.02** (total 10.97), against actual averages of 1.00 / 4.29 / 4.69 / 1.02
 
 ---
 
+## D20. Attacking events: scorers weighted by xG among players on the pitch, assists by position-adjusted xA
+
+*Phase 2 step 3, 2026-09-28*
+
+**Context.** Real GW1–5 data:
+- Own goals are **5.0%** of team goals (7 of 141).
+- **97%** of other goals get an FPL assist (130 of 134). FPL counts rebounds from saves, penalties won and so on.
+- FPL assists exceed xA by about 41% (130 vs 92.3), and the gap is concentrated in forwards: 15.4% of FPL assists
+  against 7.0% of xA.
+- Goal shares are close to xG shares (MID 57.5% of goals vs 50.6% of xG; FWD 26.9% vs 31.0%).
+
+**Decisions** (`fpl_agent/model/attack.py`). For each simulated team goal:
+- **The minute** is uniform on [0, 90).
+- **Own goal** with the season's own-goal share; nobody is credited.
+- **The scorer** is chosen among that team's players **on the pitch at that minute** (from D18), weighted by xG
+  per 90. Penalty xG is included, so penalty takers are covered.
+- **An assist** follows with the season's assist rate: a teammate on the pitch other than the scorer, weighted
+  by **xA per 90 × a per-position factor** (FPL assists ÷ xA). This is the user's option (c). Currently FWD
+  ×3.08, MID ×1.30, DEF ×1.22.
+
+**Also:**
+- Per-90 rates are **shrunk toward the position mean by 270 minutes**, so one chance in a cameo isn't treated
+  as elite.
+- **Only the *relative* factors matter** for who assists, because the assist rate fixes how many assists
+  happen. Forwards come out about ×2.4 relative to midfielders.
+- **Everything is vectorized over simulations**; the loop runs over goal number per team. GW6 takes about
+  0.9s for 10,000 simulations.
+
+**Alternatives.**
+- *Raw xA.* Underrates forwards' FPL assists by more than half.
+- *Actual FPL assists per 90.* Too noisy per player over 5 gameweeks.
+- *Position-adjusting goals too.* The goals-vs-xG gaps look like finishing noise, and xG is the better
+  predictor.
+- *Realistic goal timing* (goals lean slightly late). Easy to refine later.
+- *Simulating the −2 own-goal penalty.* About 0.02 points per player per season.
+
+**Known limitations.**
+- The goalkeeper factor (×3.03) rests on one assist, but keepers' xA is close to 0.
+- Assist rate and own-goal share are season-wide constants: they don't vary by team or style.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

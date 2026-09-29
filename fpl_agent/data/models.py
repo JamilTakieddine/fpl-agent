@@ -69,6 +69,10 @@ class Player(FplModel):
     minutes: int  # season total
     starts: int  # season total
     expected_goals: float  # season total xG (the API sends it as a string, e.g. "3.45")
+    expected_assists: float  # season total xA
+    goals_scored: int  # season totals, as FPL scores them
+    assists: int
+    own_goals: int
     expected_goals_conceded: float  # xG conceded while he was on the pitch, season total
 
 
