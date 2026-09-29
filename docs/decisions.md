@@ -875,6 +875,56 @@ expected points.
 
 ---
 
+## D24. Back-testing data: last season from community archives, rebuilt without peeking
+
+*Phase 2 step 7a, 2026-09-29*
+
+**Context.** Validation needs real gameweeks, and five is thin.
+- **The FPL API keeps only season *totals* for past seasons** (`element-summary.history_past`: minutes, xG,
+  DEFCON, BPS, points…). The per-gameweek endpoints cover the current season only.
+- **Kalshi's candlestick endpoint** gives hourly price history for settled markets, so this season's pre-match
+  prices can be rebuilt (in 7b).
+
+**Decisions** (`fpl_agent/validation/`, `scripts/fetch_history.py`, `scripts/check_history.py`):
+- **2025/26 from two community archives**, downloaded at run time into the gitignored `data/cache/history/`:
+  - **vaastav/Fantasy-Premier-League** (MIT): every player-match for all 38 gameweeks, including FPL's own
+    pre-gameweek `xP`, a ready-made benchmark.
+  - **football-data.co.uk:** closing odds for all 380 matches. It's offered as free downloads with no explicit
+    licence stated, so it's used for **personal back-testing only**: never committed, never redistributed,
+    and credited here.
+- **Market-average closing odds are used for every match**, converted with the same Poisson pipeline as Kalshi
+  (1X2 sets the split, over/under 2.5 sets the total). Pinnacle's closing odds are missing for 170 of the 380
+  matches, and mixing sources would make matches inconsistent with each other.
+- **The rebuild uses no future information** (`pointintime.build_case`). For gameweek *k*:
+  - player totals are re-summed from rows *before k*;
+  - fixtures from *k* on have no results;
+  - live data covers only the lineup window before *k*;
+  - odds are closing odds for *k*'s matches.
+
+  Deadlines are approximated as first kickoff − 90 minutes, for the calendar only.
+- **Duplicate archive rows are removed.** Ten (player, fixture) pairs appear twice, one player in 9 fixtures,
+  which would double his minutes, goals and xG.
+
+**Consistency checks** (`validation/checks.py`, run with `python scripts/check_history.py`; about 6s):
+- **Scoring reproduced exactly for 29,747 / 29,747 player-matches** from their stats. Our rules, thresholds and
+  point values (DEFCON included) held for 2025/26, which is far stronger evidence than D21's 5-gameweek check.
+- **Goals + own goals = final score in 380 / 380 fixtures** (377 before the duplicates were removed).
+- **All 380 matches have odds; zero future-information leaks** across the 37 rebuilt gameweeks.
+
+**Limitations.**
+- **No historical injury flags** exist, so everyone is "available". The back-test understates the live system
+  on availability.
+- **Closing odds are set slightly after FPL's deadline**, so they're a little better informed than live runs.
+- **Promoted and relegated teams differ between seasons.**
+
+**Alternatives.**
+- *The current season only.* 5 gameweeks, about 1/7 of the evidence.
+- *End-of-season totals as inputs.* Leaks the future.
+- *Pinnacle where available, the market average elsewhere.* Inconsistent across matches.
+- *Committing the archives.* A licence question for football-data, and weekly bloat.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
