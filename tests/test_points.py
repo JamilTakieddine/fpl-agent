@@ -14,6 +14,7 @@ from fpl_agent.data.calendar import build_calendar
 from fpl_agent.data.lineups import predict_all
 from fpl_agent.data.models import Bootstrap, EventLive, Fixture, PositionCode
 from fpl_agent.model.attack import AttackSamples
+from fpl_agent.model.bonus import BonusSamples
 from fpl_agent.model.defence import DefenceSamples
 from fpl_agent.model.discipline import DisciplineRates, DisciplineSamples, simulate_discipline
 from fpl_agent.model.gameweek import simulate_gameweek
@@ -54,8 +55,9 @@ def score(
     discipline = DisciplineSamples(
         yellow=col("y").astype(bool), red=col("r").astype(bool), pens_saved=col("ps")
     )
+    bonus = BonusSamples(bps=col("bps"), bonus=col("b"))
     boot = Bootstrap.model_validate(bootstrap_json)
-    return compute_points(boot, positions, minutes, attack, defence, discipline)
+    return compute_points(boot, positions, minutes, attack, defence, discipline, bonus)
 
 
 POS: dict[int, PositionCode] = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
@@ -103,6 +105,7 @@ def test_defcon_cards_assists_and_penalty_saves(bootstrap_json: Any) -> None:
     assert pts(bootstrap_json, pid=3, a=1, y=1) == 2 + 3 - 1
     assert pts(bootstrap_json, pid=4, r=1) == 2 - 3
     assert pts(bootstrap_json, pid=1, ps=1) == 2 + 5
+    assert pts(bootstrap_json, pid=4, b=3) == 2 + 3
 
 
 def test_config_change_changes_points(bootstrap_json: Any) -> None:
