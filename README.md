@@ -12,8 +12,9 @@ Status:
   FPL points, validated against 2025/26 and early 2026/27: it beats form-based benchmarks on accuracy
   and ranking, with honest probabilities (`docs/validation.md`).
 - **Phase 3 (optimizer): in progress.** Part 1 done: the FPL rules engine, which reproduces FPL's own
-  auto-subs and official points for every real team-gameweek tested. Next: scoring teams inside the
-  simulations, then the opponent model and the lineup/captain optimizer.
+  auto-subs and official points for every real team-gameweek tested. Part 2 done: a vectorized scorer that
+  gives a lineup's points in all 10,000 simulations in about 1 ms, matching the rules engine exactly.
+  Next: the opponent model, then the lineup/captain optimizer.
 
 ## Setup
 ```bash
