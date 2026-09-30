@@ -1,9 +1,10 @@
 """Per-gameweek snapshots of every player's availability flags.
 
 FPL only exposes a player's flag as it is NOW, so there's no way to ask later "was he injured
-before GW3's deadline?". Each run therefore records all flags from the bootstrap it already
-fetched (no extra requests). The lineup baseline uses them to EXCUSE matches a player was
-flagged out for, instead of counting them as "benched while fit". See docs/decisions.md (D14).
+before GW3's deadline?". Each run therefore records all flags (and ownership, D30) from the
+bootstrap it already fetched (no extra requests). The lineup baseline uses them to EXCUSE
+matches a player was flagged out for, instead of counting them as "benched while fit". See
+docs/decisions.md (D14).
 
 One snapshot per gameweek: the latest one taken BEFORE that gameweek's deadline wins (the
 day-before check and the deadline run both write; the later one has the freshest news).
@@ -39,6 +40,9 @@ class FlagSnapshot(BaseModel):
     taken_at: datetime
     deadline: datetime
     flags: dict[int, PlayerFlag]
+    # % of all FPL squads owning each player before the deadline: fits the H2H "AVERAGE" model
+    # (D30). Like flags, the API only shows it as it is NOW. Empty in snapshots saved before D30.
+    ownership: dict[int, float] = {}
 
 
 class SnapshotStore(Protocol):
@@ -80,6 +84,7 @@ def take_snapshot(bootstrap: Bootstrap, event: int, now: datetime) -> FlagSnapsh
             )
             for p in bootstrap.elements
         },
+        ownership={p.id: p.selected_by_percent for p in bootstrap.elements},
     )
 
 

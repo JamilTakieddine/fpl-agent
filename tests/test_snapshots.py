@@ -1,5 +1,6 @@
-# Flag snapshots: recording rules (before the deadline only, latest wins), the file store, and
-# how lineup predictions excuse matches a player was flagged out for; synthetic data, no network.
+# Flag (and ownership) snapshots: recording rules (before the deadline only, latest wins), the file
+# store, and how lineup predictions excuse matches a player was flagged out for; synthetic data, no
+# network.
 
 from __future__ import annotations
 
@@ -106,6 +107,13 @@ def test_snapshot_captures_every_players_flags(bootstrap_json: Any) -> None:
     s = take_snapshot(boot, event.id, event.deadline_time - timedelta(hours=1))
     assert set(s.flags) == {p.id for p in boot.elements}
     assert s.deadline == event.deadline_time
+    assert s.ownership == {p.id: p.selected_by_percent for p in boot.elements}  # for D30
+
+
+def test_snapshots_saved_before_ownership_existed_still_load() -> None:
+    old = '{"event": 6, "taken_at": "2026-09-26T22:05:47Z", "deadline": "2026-10-10T10:00:00Z", '
+    s = FlagSnapshot.model_validate_json(old + '"flags": {}}')
+    assert s.ownership == {}
 
 
 def test_record_before_deadline_saves(tmp_path: Path, bootstrap_json: Any) -> None:

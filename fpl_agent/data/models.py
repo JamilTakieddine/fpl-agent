@@ -36,6 +36,8 @@ class Event(FplModel):
     is_previous: bool
     is_current: bool
     is_next: bool
+    # FPL-wide average score (0 until finished); an H2H "AVERAGE" opponent scores this (D30).
+    average_entry_score: int = 0
 
 
 class Team(FplModel):
@@ -80,6 +82,8 @@ class Player(FplModel):
     red_cards: int
     penalties_saved: int
     expected_goals_conceded: float  # xG conceded while he was on the pitch, season total
+    # % of all FPL squads that own him (the API sends a string); 0 in rebuilt past seasons.
+    selected_by_percent: float = 0.0
 
 
 class ChipDefinition(FplModel):
@@ -237,11 +241,19 @@ class EntryHistory(FplModel):
     chips: list[ChipPlay]
 
 
+class AutomaticSub(FplModel):
+    element_in: int
+    element_out: int
+
+
 class EntryPicks(FplModel):
-    """Another manager's picks for a FINISHED gameweek. The upcoming one is hidden (404)."""
+    """Another manager's picks for a FINISHED gameweek. The upcoming one is hidden (404).
+
+    The picks are the lineup AFTER FPL's auto-subs, which are listed in automatic_subs (D28)."""
 
     picks: list[PublicPick]
     active_chip: str | None
+    automatic_subs: list[AutomaticSub] = []
 
 
 # --- per-gameweek live stats (public) -------------------------------------------------------
