@@ -16,7 +16,9 @@ Status:
   gives a lineup's points in all 10,000 simulations in about 1 ms, matching the rules engine exactly.
   Part 3 done: the H2H opponent (last week's team sheet, a captain spread fitted on the league's real
   picks, chip chances, and FPL's overall average for "AVERAGE" weeks) scored in the same simulations.
-  Next: the lineup/captain optimizer.
+  Part 4 done: the lineup optimizer (XI, bench order, captain, vice-captain) that maximizes the chance of
+  beating this week's opponent by 3+ points without giving up more than 1 expected point; dry run only.
+  Next: transfer recommendations.
 
 ## Setup
 ```bash
@@ -30,6 +32,7 @@ cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID
 ## Usage
 ```bash
 python -m fpl_agent.model         # simulate the next gameweek: your squad's xPts and haul chances
+python -m fpl_agent.optimize      # DRY RUN: recommended lineup/captain vs this week's H2H opponent
 python -m fpl_agent.data          # live check + records snapshots/odds: deadlines, next 6 GWs, H2H opponent,
                                   # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)

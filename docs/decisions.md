@@ -1279,6 +1279,86 @@ takes seconds, and the optimizer needs thousands of lineups.
   decisions per gameweek), the AVERAGE scale (point-in-time ownership from GW6), and the chip chances (opponents'
   actual chip plays become visible after each deadline).
 
+## D31. Lineup optimizer: exact pruning by the points guard, streaming candidates, one-SE tie rule
+
+*Phase 3 part 4, 2026-09-30. Design explained and approved: ties within the noise go to more expected points;
+buffer 3 and guard 1.0 kept (including AVERAGE weeks); chips reported as information only.*
+
+**Context.** For a fixed squad, choose the XI, bench order, captain and vice-captain that maximize P(my points −
+opponent's ≥ 3), among lineups within 1.0 expected point of the best (D28). A 2-5-5-3 squad has **550** legal XIs
+(either keeper; 286 ways to pick 10 of 13 outfielders, minus 10 with two defenders and 1 with no forward).
+× 6 bench orders × 110 captain pairs is about 360,000 lineups, or about 6 minutes at 1 ms each.
+
+**Decision** (`fpl_agent/optimize/lineup.py`):
+- **The scorer is split into team points and captain bonus** (`scoring.py`: `team_points_before_armband` +
+  `armband_points`; `score_lineup` is their sum). The captain never changes auto-subs.
+  - Each XI and bench order is scored once.
+  - Every captain pair's *expected* bonus comes from one 15 × 15 matrix product: E[captain's points if he
+    played] + E[vice's points if he played and the captain didn't].
+- **Exact pruning by the guard.** Each XI gets a cheap **upper bound** on its expected points: the starters, plus
+  every bench player's points wherever a starter of his kind (keeper or outfield) missed out, plus its best
+  captain pair.
+  - XIs are scored from the highest bound down, stopping once a bound falls below (best − guard). The best only
+    rises, so nothing skipped could have passed the guard.
+  - What survives is **every** lineup within the guard, not an approximation.
+- **Streaming instead of storing.** A real squad has thousands of candidates within 1.0 point: **2,505 for GW6**,
+  mostly vice-captain and bench-order variants that differ in a few simulations.
+  - Storing them all at 10,000 simulations took about 200 MB, and about 1.2 GB at guard 2.0.
+  - Now only each XI + bench order's team points are kept (16-bit), and lineups are rebuilt on the fly.
+  - The choice is made in two passes: find the best chance per buffer, then apply the tie rule against it.
+  - The optimizer adds **about 20 MB** to the run. The simulation itself peaks near 2 GB, which matters for
+    Phase 4's Cloud Run sizing.
+- **The one-standard-error rule against the winner's curse.** The highest estimated chance among thousands is
+  partly luck.
+  - A lineup counts as tied with the best if its chance is within 1 standard error of the *paired* difference.
+    Both are scored on the same simulations, so only the simulations where they differ add noise.
+  - Among the tied, **the most expected points wins**, as the user chose: steadier, and kinder to overall rank.
+- **Tie-breaks for lineups that score exactly the same.**
+  - Starting a keeper who won't play scores the same as starting his replacement, because the auto-sub brings
+    him on.
+  - Captaining an injured player scores the same as captaining his vice-captain, because the armband passes on.
+  - Both read absurdly, so exact ties go to the starters and captain who actually play.
+  - Bench orders are tried in expected-points order.
+- **The guard's edge is inside it** (tolerance 1e-9). Averages over n simulations are multiples of 1/n, so
+  lineups land exactly on the edge. The brute-force test caught float rounding deciding those both ways.
+- **Starting order is FPL's** (GK, DEF, MID, FWD), because auto-subs scan starters in that order.
+- **Dry run: `python -m fpl_agent.optimize`** (read-only). It prints:
+  - the recommendation, the changes from your current lineup, and a comparison with your current lineup and
+    the highest-expected-points one;
+  - the lineup each buffer 1–5 would choose;
+  - chip effects as information.
+  - The rules engine checks the final lineup.
+  - The fetch-and-simulate steps moved to `fpl_agent/model/pipeline.py`, shared with `python -m fpl_agent.model`.
+
+**Verification.**
+- **Brute force:** every XI × bench order × captain pair on random squads. The optimizer's candidates are
+  exactly the lineups within the guard, with the right points in each simulation.
+- **Planted cases:**
+  - An underdog captains the differential. The opponent captains a player I own, so matching them can never
+    win.
+  - A favourite captains the shared player, which locks in the win.
+  - A keeper and a star who won't play are benched and never captained.
+- **The tie rule:** a +0.3% edge spread over 1,500 differing simulations is a tie, and the extra expected points
+  win. A +5% edge wins outright.
+
+**First live run (GW6).** In 2.3 s, 481 of 550 XIs were within reach. Against your opponent:
+- P(win by 3+) goes from 54.6% with your current lineup to **59.6%**, expected points from 51.2 to **53.9**.
+- **It starts João Pedro (2.1 expected points) over two bench players at 2.8.** He plays in only 45% of the
+  simulations but averages 4.7 when he does, and when he doesn't, the auto-sub brings a bench player on. That's
+  worth about 3.8: "start the doubtful player, keep a good bench", found by scoring auto-subs exactly.
+- **It captains Fernandes (5.3, home to Spurs) over Haaland (5.1, away at Liverpool).** FPL's own `ep_next` says
+  8.0 vs 2.0, because it follows recent form and largely ignores fixtures. The model's call is reasonable, and it
+  is the kind of pick part 7's back-test must check.
+- **Every buffer from 1 to 5 picks the same lineup.** This week the buffer costs nothing (Q5).
+
+**Alternatives.**
+- *Brute force*: exact but about 6 minutes.
+- *Greedy steps* (best XI, then captain, then bench): fast, but it can miss XIs that are only good because of
+  their bench or captain. The João Pedro case is one.
+- *A heuristic shortlist* (e.g. top 20 XIs by expected points): the guard gives an *exact* cutoff for free.
+- *Storing every candidate*: 200 MB to over 1 GB.
+- *Always taking the highest estimated chance*: chases noise, and the lineup could flip between runs.
+
 ---
 
 ## Findings
@@ -1371,7 +1451,7 @@ Alternatives: drop the surprise factor (ignores measured risk, and still misses 
 team-sheet model that forces exactly 11 in every simulation (it also captures who-replaces-whom
 correlation, but it's heavier; possibly later).
 
-**Q5. Should the H2H objective require winning by a buffer?** *(User idea, 2026-09-29, for Phase 3.)* *Default chosen in D28: buffer 3, points guard 1.0; Phase 3 will report what each buffer size costs.*
+**Q5. Should the H2H objective require winning by a buffer?** *(User idea, 2026-09-29, for Phase 3.)* *Default chosen in D28: buffer 3, points guard 1.0; Phase 3 will report what each buffer size costs.* *First evidence (D31, GW6): buffers 1–5 all chose the same lineup, so the buffer cost nothing that week. `python -m fpl_agent.optimize` prints this every run; revisit after several gameweeks.*
 Aim to beat the opponent by a margin of **3–5 points**, deliberately small so the model's outputs are still
 trusted. With simulated gameweeks this is one parameter: maximize P(my points − opponent's points ≥ buffer)
 instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
