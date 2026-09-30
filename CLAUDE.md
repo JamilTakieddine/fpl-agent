@@ -15,7 +15,8 @@ Public repo. I'm building it to learn, so explain non-obvious choices briefly as
 - The agent runs ~15 min before the deadline. Confirmed lineups are never available by then;
   all minutes decisions use predicted lineups.
 - An opponent's current-GW picks are hidden until the deadline. Model the opponent from last GW's squad
-  plus a probability spread over their likely captain. Chips only if they have one left and it's a DGW.
+  plus a probability spread over their likely captain. Chips (TC/BB) only if they have one left, and only
+  in a DGW or the last 2 GWs before that chip is forfeited; the chance rises as the window closes (D30).
 
 ## FPL rules the code must enforce
 1. Any transfer beyond the free ones costs -4 and must beat that in expected gain. Max 5 banked free transfers.

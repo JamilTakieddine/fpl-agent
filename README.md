@@ -14,7 +14,9 @@ Status:
 - **Phase 3 (optimizer): in progress.** Part 1 done: the FPL rules engine, which reproduces FPL's own
   auto-subs and official points for every real team-gameweek tested. Part 2 done: a vectorized scorer that
   gives a lineup's points in all 10,000 simulations in about 1 ms, matching the rules engine exactly.
-  Next: the opponent model, then the lineup/captain optimizer.
+  Part 3 done: the H2H opponent (last week's team sheet, a captain spread fitted on the league's real
+  picks, chip chances, and FPL's overall average for "AVERAGE" weeks) scored in the same simulations.
+  Next: the lineup/captain optimizer.
 
 ## Setup
 ```bash
@@ -35,6 +37,7 @@ python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g.
 python scripts/fetch_history.py   # download last season's archives for back-testing (gitignored)
 python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
 python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
+python scripts/fit_opponent.py    # refit the opponent captain model and AVERAGE scale on league data
 python -m fpl_agent.validation --report  # back-test both seasons; writes docs/validation.md
 ```
 

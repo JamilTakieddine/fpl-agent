@@ -38,7 +38,9 @@ class CaptainChoice:
 class OpponentSnapshot:
     opponent: Opponent
     event: int  # the gameweek we're playing them in
-    last_picks: EntryPicks | None  # their last FINISHED gameweek; None before GW1 ends
+    # Their squad as it stands: the last FINISHED gameweek's picks, skipping a Free Hit week (that
+    # squad was temporary and has reverted, D30). None before GW1 ends.
+    last_picks: EntryPicks | None
     captain_history: tuple[CaptainChoice, ...]
     chips_remaining: frozenset[str]  # chips still usable in `event`'s window
 
@@ -94,6 +96,13 @@ def captain_history(picks_by_event: dict[int, EntryPicks]) -> tuple[CaptainChoic
     return tuple(choices)
 
 
+def current_squad(picks_by_event: dict[int, EntryPicks]) -> EntryPicks | None:
+    """The latest picks that are still their squad: a Free Hit squad lasts one gameweek, then
+    FPL restores the one from before it, so a Free Hit week is skipped."""
+    real = [gw for gw, p in picks_by_event.items() if p.active_chip != "freehit"]
+    return picks_by_event[max(real)] if real else None
+
+
 def history_events(event: int, n: int = CAPTAIN_HISTORY_GWS) -> list[int]:
     """The last n finished gameweeks before `event` (fewer early in the season)."""
     return list(range(max(1, event - n), event))
@@ -112,11 +121,10 @@ def load_opponent(
         picks = client.entry_picks(opponent.entry_id, gw)
         if picks is not None:  # e.g. they joined late and have no team for that gameweek
             picks_by_event[gw] = picks
-    last = max(picks_by_event) if picks_by_event else None
     return OpponentSnapshot(
         opponent=opponent,
         event=event,
-        last_picks=picks_by_event[last] if last is not None else None,
+        last_picks=current_squad(picks_by_event),
         captain_history=captain_history(picks_by_event),
         chips_remaining=chips_remaining(client.bootstrap().chips, history.chips, event),
     )

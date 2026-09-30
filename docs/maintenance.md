@@ -9,7 +9,7 @@ manual check. This list is only for the numbers and assumptions baked into the c
 |---|---|
 | Deadlines, double/blank gameweeks | Recomputed from `/fixtures/` + `deadline_time` each run (D10). |
 | Scoring values, chip windows | Read from `bootstrap-static` each run (rule 8, rule 3). |
-| Player availability flags | Read each run and saved as a snapshot (D14). |
+| Player availability flags and ownership | Read each run and saved as a snapshot (D14, D30). |
 | Access-token refresh | Handled by `TokenManager` (D5, D8, D12). |
 
 ## Periodic checks
@@ -27,6 +27,8 @@ manual check. This list is only for the numbers and assumptions baked into the c
 | Back-testing archives (D24) | **Each summer**, once the finished season is archived. | `python scripts/fetch_history.py <season>` then `python scripts/check_history.py <season>`: expect OK (scoring reproduced 100%, scores reconcile, all matches priced, no leaks). | Archives can have duplicates or gaps (2025/26 had 10 duplicate rows); rules can change between seasons. |
 | Back-test (D25) | **Every ~5 gameweeks** in season (fetch new Kalshi history, refresh live cache), and after any model change. | `python scripts/fetch_kalshi_history.py`, then `python -m fpl_agent.validation --report` (updates `docs/validation.md`; republish the HTML page). Compare with D25/D26: bias near 0, beats both benchmarks, flat PIT. | A regression shows up as bias, a lost benchmark lead, or a bent PIT. |
 | Rules engine vs FPL (D28) | **Start of each season**, after GW2–3. | Fetch league picks into `data/cache/picks/`, then replay them as in D28: auto-subs and official points must match 100%. `scripts/record_fixtures.py` refreshes the 9 regression cases. | FPL can change auto-sub, chip or captaincy rules between seasons. |
+| Opponent captain spread (habit 0.85, temperature 1.0) and AVERAGE scale (0.9) (D30) | **Every ~5 gameweeks** (GW11, 16, ...), after refreshing the back-test for the new gameweeks. | `python scripts/fit_opponent.py`: compare the fit with the values in use. Change a constant only if the fit moves clearly, and record it (Q6). The back-test's current-season range (`fpl_agent/validation/__main__.py`, GW2–5 today) must be extended first, or new gameweeks have no expected points. | 44 decisions and 4 average-score weeks so far; each gameweek adds 10 decisions and one ownership-snapshotted week. |
+| Opponent chip chances (30–80%, D30) | **After each double gameweek, and GW18–19**; rethink before GW20. | For each league opponent: did they hold Triple Captain / Bench Boost, and did they play it? Compare with the predicted chance. | Starting values, reasoned rather than fitted (Q6). |
 | Test data (`tests/fixtures/`) | **Start of each season**, and whenever the live check fails with a pydantic validation error. | `python scripts/record_fixtures.py` after refreshing `data/cache/`. | FPL changes its API between seasons. A validation error on arrival is the signal. |
 | Auth behaviour: access token 1h, refresh token 180 days (extends with use), reuse detection | **Once per season.** | Phase 0 spikes. `phase1_reuse_detection.py --delay 180` revokes your login on purpose, so only run it when you're at your Mac. | The login provider can change these, and D5/D12 rely on them. |
 | Kalshi team-name table (`KALSHI_TO_FPL_NAME`) | **Start of each season** (promoted teams bring new names), and whenever the live check reports `unknown team name`. | Add the new Kalshi name → FPL name pair. | Mapping is explicit on purpose: unknown names are skipped, not guessed (D15). |

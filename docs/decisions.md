@@ -1202,6 +1202,83 @@ takes seconds, and the optimizer needs thousands of lineups.
 - *Approximating (e.g. ignoring formation limits).* Formation-blocked subs are exactly the edge cases where bench
   order matters. Exactness keeps the bench-order decision trustworthy.
 
+## D30. The opponent model: last week's team sheet, a fitted captain spread, chip chances, FPL's AVERAGE
+
+*Phase 3 part 3, 2026-09-30. Design agreed with the user, then adjusted by research on the league's real data.*
+
+**Context.** The objective (D28) is P(my points − opponent's ≥ buffer), so the opponent must be scored in the same
+10,000 simulated gameweeks as my team. Their picks for the coming gameweek are hidden until the deadline.
+
+**Research first** (the league's real GW1–5 data: 11 managers, 55 team-gameweeks, H2H results):
+- **"AVERAGE" is FPL's overall average score**, across millions of managers, not the league's average. The
+  league's AVERAGE opponent scored exactly `events[].average_entry_score` in 5 of 5 gameweeks. The league mean
+  was off by up to 9 points. This overturned the agreed plan ("score the 10 other squads and average them"),
+  which would have modelled the wrong thing.
+- **Managers keep their squads.** 0.66 transfers per manager-week, and only 2 of 44 captains weren't in the
+  previous week's squad.
+- **Captaincy is mostly habit** (the user's instinct, confirmed). Details below.
+
+**Decisions** (`fpl_agent/optimize/opponent.py`; data changes in `fpl_agent/data/`):
+- **Their team sheet is last gameweek's**, with FPL's auto-subs swapped back (FPL returns the lineup *after*
+  them, D28). A Free Hit week is skipped because that squad has reverted (`data/opponent.current_squad`).
+  Unseen transfers and hits are ignored. An injured starter "doesn't play" in the simulations, so their bench
+  covers him through the same auto-sub rules as mine.
+- **The captain is a probability spread:** habit weight × (share of their last 5 captaincies) + the rest ×
+  softmax(expected points / temperature), over their starters.
+  - Fitted by maximum likelihood on the league's 44 real GW2–5 decisions, using the no-peeking back-test expected
+    points: **habit weight 0.85, temperature 1.0**. The average log-likelihood is −0.58, meaning the real captain
+    got about 56% probability, against −1.31 with expected points alone.
+  - The fit is flat for habit weights 0.7–0.9, so the exact value matters little.
+  - The most likely captain was right 86% of the time, against 64% for "top expected points". "Same as last
+    week" also hits 86%, but it gives no probability to a switch.
+- **Availability scales habit** (added after the first live run). Their habitual captain was flagged 75%, yet
+  kept a 68% share. Now habit × chance of playing (from FPL's flags) counts, and the share lost goes to the
+  expected-points part: a ruled-out player loses all of his habit share. That run became 52% for the flagged
+  player and 22% for the top expected scorer. This scaling is **reasoned, not fitted**: GW2–5 had almost no doubtful
+  habitual captains. The vice-captain is the second most likely captain.
+- **Chips** (Triple Captain or Bench Boost only, and only if they still hold one):
+  - The chance is 1 ÷ (chip-worthy gameweeks left in the chip's window, this one included), kept between
+    **30% and 80%**.
+  - "Chip-worthy" means a double gameweek, or one of the **last 2 gameweeks of the window**: use it or lose it.
+    If no double gameweek comes before GW19, first-half chips get played in normal weeks.
+  - One chip per gameweek, so the two chances together are capped at 80%. Wildcard and Free Hit aren't modelled,
+    because they give a squad we can't see.
+  - The user agreed 30% as the starting point and the rise towards the forfeit deadline. They approved changing
+    the CLAUDE.md rule "chips only if … a DGW" accordingly.
+- **Draw, don't average.** In each simulation the captain and chip are drawn. Each (captain, chip)
+  combination is scored with `score_lineup`, the exact rules from D29, and each simulation takes the one it drew.
+  - Averaging would shrink their spread, and win probability depends on the tails.
+  - The draw is made once per run, so every candidate lineup of mine meets the same opponent (common random
+    numbers).
+  - Cost: one `score_lineup` call (about 1 ms) per likely captain and chip combination.
+- **The AVERAGE opponent is modelled from ownership:** scale × Σ (share of FPL squads owning a player × his
+  points), per simulation, rounded (FPL reports a whole number).
+  - On GW2–5 the scale is **0.9**, with misses of about 3 points or less.
+  - GW1 missed by 14, because only *today's* ownership was available. So ownership (`selected_by_percent`) is now
+    saved in each flag snapshot, and the scale can be refit on pre-deadline ownership from GW6 on.
+  - This needs no extra requests.
+- **`scripts/fit_opponent.py` refits both** from cached league data, fetching only what's missing, and prints
+  the fits next to the values in use. It changes nothing: updating a constant stays a reviewed decision.
+
+**First live run** (GW6, a real opponent sharing none of my players): expected 51.1 vs 46.5 points. **P(win)
+58.7%**, P(draw) 2.2%, P(win by 3+) 54.5%.
+
+**Alternatives.**
+- *League average for AVERAGE*: disproved by the data.
+- *Scoring all 10 league squads*: models the wrong thing, and needed about 60 requests.
+- *A single most-likely captain*: overconfident. The real captain wasn't the most likely one in 14% of cases.
+- *Averaging captain points instead of drawing*: understates the opponent's big weeks.
+- *Guessing their transfers*: mostly noise at 0.66 transfers a week. Part 7 measures what ignoring them costs.
+- *A flat 30% chip chance*: ignores the forfeit deadline.
+- *Chips only in double gameweeks*: misses first-half chips burned in normal weeks before GW19.
+- *Fitting the chip chances*: there are no data yet; they're checked against reality instead (Q6).
+
+**Consequences.**
+- Part 4 compares candidate lineups against one fixed opponent vector per run.
+- Three numbers are to be re-checked as evidence arrives (Q6, `docs/maintenance.md`): the captain fit (10 new
+  decisions per gameweek), the AVERAGE scale (point-in-time ownership from GW6), and the chip chances (opponents'
+  actual chip plays become visible after each deadline).
+
 ---
 
 ## Findings
@@ -1299,3 +1376,16 @@ Aim to beat the opponent by a margin of **3–5 points**, deliberately small so 
 trusted. With simulated gameweeks this is one parameter: maximize P(my points − opponent's points ≥ buffer)
 instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
 win probability each buffer size costs.
+
+**Q6. Do the opponent model's assumptions hold as the season goes on?** *(D30, 2026-09-30.)*
+Starting values: captain habit weight 0.85 / temperature 1.0, AVERAGE scale 0.9, chip chance 30–80%, and habit
+scaled by availability.
+- *Captain spread*: re-run `python scripts/fit_opponent.py` every ~5 gameweeks. Each gameweek adds 10 decisions.
+  Change the constants only if the fit moves clearly, not by noise (the likelihood surface is flat).
+- *AVERAGE scale*: from GW6 the snapshots hold pre-deadline ownership. Refit once there are 3+ such gameweeks,
+  and watch the misses: early-season ownership churn is the known weak spot.
+- *Chip chances*: after each double gameweek, and in GW18–19, record which league opponents held a chip and
+  whether they played it. By GW19 there's enough to say if 30%+ is too high or too low. **Revisit the whole
+  scheme for the second half (GW20–38)**, where the double gameweeks cluster late and the user may want a
+  different starting point.
+- *Availability scaling*: check the first cases where an opponent's habitual captain was flagged. Did they switch?

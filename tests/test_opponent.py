@@ -12,6 +12,7 @@ from fpl_agent.data.models import ChipDefinition, ChipPlay, EntryPicks, H2HMatch
 from fpl_agent.data.opponent import (
     captain_history,
     chips_remaining,
+    current_squad,
     find_opponent,
     history_events,
     load_opponent,
@@ -87,6 +88,15 @@ def test_captain_history_is_oldest_first_and_records_chip() -> None:
     assert [c.event for c in history] == [4, 5]
     assert history[1].chip == "3xc"
     assert history[0].captain != history[0].vice_captain
+
+
+def test_current_squad_skips_a_free_hit_week() -> None:
+    raw = load_fixture("opp_picks")
+    gw3, gw4 = EntryPicks.model_validate(raw), EntryPicks.model_validate(dict(raw, picks=[]))
+    free_hit = EntryPicks.model_validate(dict(raw, active_chip="freehit"))
+    assert current_squad({3: gw3, 4: gw4}) is gw4
+    assert current_squad({4: gw4, 5: free_hit}) is gw4  # the Free Hit squad has reverted
+    assert current_squad({}) is None
 
 
 def test_history_events_clips_at_season_start() -> None:
