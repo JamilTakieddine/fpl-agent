@@ -1151,6 +1151,57 @@ team-gameweeks, cached in the gitignored `data/cache/picks/`):
   a test that the two agree is safer.
 - *Assuming the auto-sub order.* Two plausible readings differ in edge cases; FPL's own data decided.
 
+## D29. Team scoring over the simulations: vectorized, slot by slot, checked against the rules engine
+
+*Phase 3 part 2, 2026-09-29*
+
+**Context.** The optimizer scores many candidate lineups (and the opponent's team) on the same 10,000 simulated
+gameweeks. The rules engine scores one outcome at a time in plain Python. Calling it 10,000 times per lineup
+takes seconds, and the optimizer needs thousands of lineups.
+
+**Decision** (`fpl_agent/optimize/scoring.py`):
+- **`squad_sims`** pulls the squad's rows out of the gameweek simulation. A player with no fixture (blank
+  gameweek) gets 0 points and "didn't play".
+- **`score_lineup`** returns the team's points in every simulation (shape `(n_sims,)`), with the same steps as
+  `rules.team_points`: goalkeeper swap, outfield subs in bench order with formation checks, armband (vice-captain
+  if the captain didn't play; ×3 with Triple Captain), Bench Boost.
+- **Python loops only over slots, never over simulations.** Four bench players × eleven slots at most, each step
+  handling all 10,000 simulations at once with numpy.
+- **The key simplification: a slot is filled at most once.** A sub only replaces a starter who didn't play, and a
+  sub only comes on if he played, so a filled slot never reopens. Three things follow:
+  - The player leaving a slot is always its original starter, so the outgoing position is a constant per slot.
+  - Only two formation counts can break with any swap: the outgoing position losing one, the incoming one gaining
+    one (the XI is legal before every swap). A same-position swap is always legal.
+  - The total is the starters' points plus, where a sub came on, the sub's points minus the starter's. No
+    "who is in each slot" matrix is needed.
+- **Verification.**
+  - A randomized test gives the fast scorer and the rules engine the same inputs: 25 random legal lineups ×
+    400 simulations × 3 chip modes. Minutes are skewed toward misses so there are plenty of subs, including
+    goalkeeper swaps. It must match in every simulation.
+  - The 9 real FPL cases from D28 run through the fast scorer too.
+  - On the real GW6 squad: 0 mismatches in 30,000 simulations (10,000 per chip mode), checked outside the test
+    suite.
+- **Speed:** 1.0 ms per lineup at 10,000 simulations on the real squad. About 1,000 lineups per second, which
+  is enough for the staged search in part 4.
+
+**How the speed was found** (measure, don't guess):
+- The first version tracked who was in each slot as an (11 × 10,000) matrix: 10.8 ms per lineup.
+- The first guess, the formation check, was wrong: rewriting it changed nothing.
+- Profiling found Python lists being turned into arrays. Building them with numpy directly: 8.7 ms.
+- Timing each operation separately showed the rest was "fancy indexing": looking up values by a per-simulation
+  index (`points[occupant, cols]`). The final (11 × 10,000) lookup alone took 0.84 ms, and smaller lookups ran
+  inside the loops.
+- The "filled once" rewrite needs none of those lookups: 1.0 ms.
+
+**Alternatives.**
+- *Calling the rules engine per simulation.* It's exact but about 1,000× slower.
+- *Numba or another compiled loop.* It would be fast, but adds a heavy dependency and a second language style,
+  and numpy is already fast enough.
+- *Precomputing auto-subs per "who didn't play" pattern.* There are too many patterns with 15 players; caching
+  would add complexity for little gain.
+- *Approximating (e.g. ignoring formation limits).* Formation-blocked subs are exactly the edge cases where bench
+  order matters. Exactness keeps the bench-order decision trustworthy.
+
 ---
 
 ## Findings
