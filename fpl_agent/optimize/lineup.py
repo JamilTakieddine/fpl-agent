@@ -131,13 +131,19 @@ class Candidates:
             r = [row[p] for p in starters]
             return float(armband_mean[np.ix_(r, r)].max())
 
+        cols = np.arange(n)
+
         def bound(starters: tuple[int, ...], bench_gk: int, rest: tuple[int, ...]) -> float:
-            """Upper bound on expected points: starters, plus every bench player's points wherever
-            a starter of his kind (keeper / outfield) missed out, plus the best captain pair."""
+            """Upper bound on expected points: the starters, plus the best captain pair, plus what
+            substitutes could add. Each missing starter is replaced at most once and each sub
+            comes on at most once, so with k outfield starters missing, the outfield bench adds
+            at most its k best scores in that simulation (the keeper likewise, for the keeper)."""
             r = [row[p] for p in starters]
-            gk_missing = ~played[r[0]]
-            out_missing = ~played[r[1:]].all(axis=0)
-            subs = gain[row[bench_gk]] @ gk_missing + sum(gain[row[b]] @ out_missing for b in rest)
+            gk_subs = gain[row[bench_gk]] @ ~played[r[0]]
+            missing = np.minimum((~played[r[1:]]).sum(axis=0), len(rest))
+            best_first = -np.sort(-gain[[row[b] for b in rest]], axis=0)
+            top_k = np.vstack([np.zeros(n), np.cumsum(best_first, axis=0)])[missing, cols].sum()
+            subs = gk_subs + top_k
             return float(mean_pts[r].sum() + (subs + loss[r].sum()) / n + best_pair(starters))
 
         def own_points(starters: tuple[int, ...]) -> float:
@@ -217,6 +223,12 @@ def candidates(
     guard: float = POINTS_GUARD,
 ) -> Candidates:
     return Candidates(sims, positions, limits, guard)
+
+
+def best_expected(sims: SquadSims, positions: Mapping[int, PositionCode], limits: Limits) -> float:
+    """The most expected points any lineup of this squad reaches (the transfer planner's value of
+    a squad in one gameweek, D32). A zero guard prunes hardest."""
+    return Candidates(sims, positions, limits, guard=0.0).best_expected
 
 
 # --- choosing ------------------------------------------------------------------------------------

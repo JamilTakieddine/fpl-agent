@@ -171,10 +171,38 @@ def test_flagged_out_absences_are_excused(bootstrap_json: Any) -> None:
     assert with_snaps.p_start > without.p_start
 
 
-def test_doubtful_flag_is_not_excused(bootstrap_json: Any) -> None:
+def test_doubtful_and_absent_is_excused(bootstrap_json: Any) -> None:
+    # D33 (was not excused under D14): doubtful at the deadline and then 0 minutes.
     boot, cal, lives = history_setup(bootstrap_json)
     h = predict_all(boot.elements, cal, lives, 5, {2: snap(2, "d", 75)})[PID].history
-    assert h.excused == 0
+    assert h.excused == 1
+    fit = predict_all(boot.elements, cal, lives, 5, {2: snap(2, "a", 100)})[PID].history
+    assert fit.excused == 0  # a 100% flag is no excuse
+
+
+def flagged_today(bootstrap_json: Any, set_at: datetime) -> Bootstrap:
+    """The player carries a doubtful flag today, set at `set_at` and unchanged since."""
+    boot = season(bootstrap_json)
+    me = boot.elements[0].model_copy(
+        update={"status": "d", "chance_of_playing_next_round": 75, "news_added": set_at}
+    )
+    return boot.model_copy(update={"elements": [me]})
+
+
+def test_flags_before_snapshots_are_reconstructed_from_todays(bootstrap_json: Any) -> None:
+    """No snapshots at all. Today's flag was set between the GW2 and GW3 deadlines, so it was
+    in force at GW3's deadline (absence excused) but not at GW2's (absence still counts)."""
+    _, cal, lives = history_setup(bootstrap_json)
+    boot = flagged_today(bootstrap_json, T0 + timedelta(weeks=1, days=1))
+    h = predict_all(boot.elements, cal, lives, 5)[PID].history
+    assert (h.team_matches, h.starts, h.excused) == (3, 2, 1)
+
+
+def test_a_snapshot_beats_the_reconstruction(bootstrap_json: Any) -> None:
+    _, cal, lives = history_setup(bootstrap_json)
+    boot = flagged_today(bootstrap_json, T0 + timedelta(weeks=1, days=1))
+    h = predict_all(boot.elements, cal, lives, 5, {3: snap(3, "a", None)})[PID].history
+    assert h.excused == 0  # the GW3 snapshot says he was fit then
 
 
 def test_flagged_out_but_played_still_counts(bootstrap_json: Any) -> None:
@@ -217,3 +245,15 @@ def test_load_predictions_reads_window_snapshots(bootstrap_json: Any) -> None:
     preds = load_predictions(FakeClient(), cal, 5, store)  # type: ignore[arg-type]
     assert store.loaded == [1, 2, 3, 4]
     assert preds[PID].history.excused == 2
+
+
+def test_a_later_week_keeps_the_excuse_but_not_the_flag(bootstrap_json: Any) -> None:
+    """For a later horizon week the knock is over (available_as: flag cleared), but his missed
+    GW3 is still judged with today's real flag: excused, not 'dropped'."""
+    _, cal, lives = history_setup(bootstrap_json)
+    boot = flagged_today(bootstrap_json, T0 + timedelta(weeks=1, days=1))
+    me = boot.elements[0]
+    fit = me.model_copy(update={"status": "a", "chance_of_playing_next_round": None})
+    pred = predict_all(boot.elements, cal, lives, 5, available_as={PID: fit})[PID]
+    assert pred.history.excused == 1
+    assert pred.p_available == 1.0

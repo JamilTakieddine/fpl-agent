@@ -18,7 +18,8 @@ Status:
   picks, chip chances, and FPL's overall average for "AVERAGE" weeks) scored in the same simulations.
   Part 4 done: the lineup optimizer (XI, bench order, captain, vice-captain) that maximizes the chance of
   beating this week's opponent by 3+ points without giving up more than 1 expected point; dry run only.
-  Next: transfer recommendations.
+  Part 5 done: transfer recommendations over the next 5 gameweeks (budget, club limit, free-transfer and
+  hit thresholds), recommendation only. Next: the lineup payload builder (dry run by default).
 
 ## Setup
 ```bash
@@ -32,7 +33,8 @@ cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID
 ## Usage
 ```bash
 python -m fpl_agent.model         # simulate the next gameweek: your squad's xPts and haul chances
-python -m fpl_agent.optimize      # DRY RUN: recommended lineup/captain vs this week's H2H opponent
+python -m fpl_agent.optimize      # DRY RUN: recommended lineup/captain vs this week's H2H opponent,
+                                  # plus transfer advice over the next 5 gameweeks
 python -m fpl_agent.data          # live check + records snapshots/odds: deadlines, next 6 GWs, H2H opponent,
                                   # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)
