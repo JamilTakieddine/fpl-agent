@@ -14,10 +14,10 @@ rest on predictions. This baseline uses only FPL's own data (see docs/decisions.
   illness, rotation). Every start probability is scaled by (1 - SURPRISE_NON_START); the removed
   share goes to "no minutes" (slightly conservative).
 
-- Excused matches (D14): if a flag snapshot shows the player was flagged OUT before a gameweek's
-  deadline and he didn't play, that gameweek's matches are dropped from his history instead of
-  counting as "unused". Snapshots exist only from when recording started, so older matches still
-  count against a player who was injured then.
+- Excused matches (D14, D33): if the player carried a flag below 100% (out or doubtful) at a
+  gameweek's deadline and didn't play, that gameweek's matches are dropped from his history
+  instead of counting as "unused". The flag comes from that gameweek's snapshot, or, before
+  snapshots existed, from today's flag if it was set before that deadline and is unchanged.
 - Top-up (D19): per team and position, expected starters are topped back up to what that team
   actually fielded over the window. Without it, surprise non-starts and absences removed starts
   that nobody inherited (~9.2 expected starters per team instead of 11), underrating replacements
@@ -28,6 +28,7 @@ Turning these probabilities into minute distributions is Phase 2's job.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from fpl_agent.data.calendar import Calendar
@@ -93,10 +94,6 @@ def availability_of(status: str, chance_of_playing_next_round: int | None) -> fl
 
 def availability(player: Player) -> float:
     return availability_of(player.status, player.chance_of_playing_next_round)
-
-
-def flagged_out(flag: PlayerFlag) -> bool:
-    return availability_of(flag.status, flag.chance_of_playing_next_round) == 0.0
 
 
 def team_matches_in(calendar: Calendar, team: int, events: list[int]) -> set[int]:
@@ -165,21 +162,42 @@ def history_events(event: int) -> list[int]:
     return window_events(event, max(HISTORY_GWS, WINDOW_GWS))
 
 
+def flag_at(
+    player: Player, gw: int, calendar: Calendar, snapshots: dict[int, FlagSnapshot]
+) -> PlayerFlag | None:
+    """The player's flag at gameweek `gw`'s deadline: the snapshot's if one was saved; otherwise
+    today's flag if it was set before that deadline and hasn't changed since (`news_added` is when
+    FPL last set or changed it), so it was already in force then (D33)."""
+    snap = snapshots.get(gw)
+    if snap is not None:
+        return snap.flags.get(player.id)
+    if player.news_added is None or gw not in calendar.gameweeks:
+        return None
+    if player.news_added >= calendar.get(gw).deadline:
+        return None
+    return PlayerFlag(
+        status=player.status,
+        chance_of_playing_next_round=player.chance_of_playing_next_round,
+        news=player.news,
+        news_added=player.news_added,
+    )
+
+
 def excused_matches(
     calendar: Calendar,
-    team: int,
-    player_id: int,
+    player: Player,
     lives: list[LiveElement],
     snapshots: dict[int, FlagSnapshot],
+    window: list[int],
 ) -> set[int]:
-    """Team matches to skip: the player was flagged out before that gameweek's deadline AND
-    didn't play (if he played anyway, the flag was wrong and the match counts)."""
+    """Team matches to skip: the player carried a flag below 100% (out OR doubtful, D33) at that
+    gameweek's deadline AND didn't play. If he played anyway, the match counts as usual."""
     played = {x.fixture for live in lives for x in live.explain if x.minutes() > 0}
     excused: set[int] = set()
-    for gw, snap in snapshots.items():
-        flag = snap.flags.get(player_id)
-        if flag is not None and flagged_out(flag):
-            excused |= team_matches_in(calendar, team, [gw]) - played
+    for gw in window:
+        flag = flag_at(player, gw, calendar, snapshots)
+        if flag is not None and availability_of(flag.status, flag.chance_of_playing_next_round) < 1:
+            excused |= team_matches_in(calendar, player.team, [gw]) - played
     return excused
 
 
@@ -189,9 +207,14 @@ def predict_all(
     lives_by_event: dict[int, EventLive],
     event: int,
     snapshots: dict[int, FlagSnapshot] | None = None,
+    available_as: Mapping[int, Player] | None = None,
 ) -> dict[int, LineupPrediction]:
     """Predictions for every player for `event`, from already-fetched live data and any flag
-    snapshots for the window's gameweeks."""
+    snapshots for the window's gameweeks.
+
+    `available_as`: the players as they'll stand in a LATER gameweek (data/injuries.py, D32).
+    Only their availability comes from there; history is always judged with today's real flags
+    (D33), or a recovered player would lose the excuse for the matches he missed injured."""
     window = [gw for gw in window_events(event) if gw in lives_by_event]
     window_snaps = {gw: s for gw, s in (snapshots or {}).items() if gw in window}
     by_player: dict[int, list[LiveElement]] = {}
@@ -203,11 +226,11 @@ def predict_all(
     predictions = {}
     for p in players:
         lives = by_player.get(p.id, [])
-        excused = excused_matches(calendar, p.team, p.id, lives, window_snaps)
+        excused = excused_matches(calendar, p, lives, window_snaps, window)
         matches = team_matches_in(calendar, p.team, window) - excused
         history = role_history(matches, lives, excused=len(excused))
         prior = season_start_rate(p, len(team_matches_in(calendar, p.team, all_past)))
-        predictions[p.id] = predict(p, history, prior)
+        predictions[p.id] = predict((available_as or {}).get(p.id, p), history, prior)
 
     team_matches = {t: len(team_matches_in(calendar, t, window)) for t in {p.team for p in players}}
     return top_up_starters(predictions, players, team_matches)

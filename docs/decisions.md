@@ -1361,6 +1361,111 @@ opponent's ≥ 3), among lineups within 1.0 expected point of the best (D28). A 
 
 ---
 
+## D32. Transfer recommendations over a 5-gameweek horizon; how long a flag lasts
+
+*Phase 3 part 5, 2026-09-30. Agreed with the user: horizon 5 gameweeks weighted 1.0 / 0.9 / 0.8 / 0.7 / 0.6; a free
+transfer must gain 1.5 points (0 when rolling would lose it to the 5-transfer cap); a hit must gain 4 + 2; at most
+2–3 transfers. Recommendation only (D28): nothing is sent to FPL.*
+
+**Context.** A transfer lasts for weeks. Judging it on one gameweek buys players for one good fixture.
+
+**Decisions** (`fpl_agent/optimize/transfers.py`, `fpl_agent/data/injuries.py`, `model/pipeline.simulate_ahead`):
+- **The horizon is simulated with the same model**, one gameweek at a time, keeping only the points. Memory
+  stays at the single-gameweek peak (about 2 GB), and it takes about 3 s per week.
+  - Lineup predictions for later weeks use the **real recent window** (the one before the next gameweek). The
+    window before a future gameweek hasn't been played yet.
+  - Kalshi usually prices only the next gameweek (GW6: 8 of 10 matches; GW7–10: none). Later weeks use the
+    xG-ratings fallback (D16), one reason they're weighted less.
+- **How long a flag lasts** (new, reasoned rather than fitted). FPL's flag is about the *next* round only.
+  Applying it to all five weeks would make the planner sell every player with a knock. From the second horizon
+  week, the flag is read with FPL's news text, which comes in a few fixed forms:
+  - "Expected back 10 Oct" / "Suspended until 25 Oct": out until that date.
+  - Doubtful (50/75%) with no date: a knock, over after the next gameweek.
+  - Injured or suspended with no date ("Unknown return date"): out for the whole horizon, the cautious reading.
+  - "u" / "n" (loans, moves abroad): out for good, and never bought.
+- **A squad's value in a week is its best lineup's expected points** (part 4's search with a zero guard:
+  auto-subs, bench and captain included), weighted over the horizon.
+- **The search runs in stages.** Scoring every option exactly costs about 2.5 s per option-week, so:
+  1. **Screen.** For each player I could sell, take the 10 best replacements at his position by horizon expected
+     points. Each gets a *quick* value: the best XI + captain from per-player expected points. That's exact for
+     the simplified problem (brute-force tested), but blind to bench auto-subs.
+  2. **Combine.** Pairs and triples come from the 20 best singles. Replacements may cost up to "bank + his
+     price + the most one other sale could free", so a second sale can fund a dearer buy.
+  3. **Check legality** with `rules.squad_violations`: budget from *selling* prices (rule 5), the 3-per-club
+     limit (rule 6), and squad shape.
+  4. **Score the 5 best exactly** in every horizon week. Choose the largest gain above its threshold; "roll" is
+     the baseline at 0.
+- **Tuning pass on part 4's pruning bound.** When k outfield starters miss out, the bench can add at most its
+  k best scores in that simulation, rather than all of them. That's still an upper bound (brute-force tests
+  unchanged), but XIs scored for GW6 fell from 481 to 156, and the search time from 2.3 s to 1.2 s.
+
+**Verification.**
+- The thresholds, including the cap case.
+- The quick value against brute force over all 550 XIs.
+- Planted squads:
+  - a clear upgrade is taken;
+  - a dearer forward is bought only when a second sale funds him;
+  - the club limit blocks a fourth player;
+  - a +1 upgrade is taken only when rolling would lose the transfer;
+  - a second +3 upgrade doesn't justify a hit.
+- The flag-duration rules, including news that isn't about injury ("on loan until January").
+
+**First live run (GW6; 5 free transfers, £0.0m bank).** About 130 legal options screened, about 35 s in total
+including the four extra simulations.
+- The first run recommended João Pedro → Barry, Kadıoğlu → Mukiele, Gvardiol → Hall: +14.1 weighted points.
+- **The João Pedro sale was inflated by a Phase 2 bias** (Q7). His GW5 injury absence counted as "dropped", so
+  he was predicted 2.0–2.4 points a week. Fixed in D33.
+- After the fix he projects 2.9 this week (75% flag) and 3.0–3.4 after. The recommendation is still João Pedro →
+  Barry, Kadıoğlu → Hall, Gvardiol → Mukiele, but now **+12.7** weighted points (needs +3.0), +3.3 this week.
+  This week's P(win by 3+) goes from 61.1% to 66.6%.
+- Barry has 3.5 xG in 5 starts. Hall and Mukiele are nailed starters with better fixtures than Kadıoğlu and
+  Gvardiol.
+- Options that end in the same squad (two defenders bought for two sold, either way round) are now listed once.
+
+**Alternatives.**
+- *This week only*: the classic trap, rejected by the user.
+- *Exact scoring of every option*: about 2.5 s × 5 weeks × hundreds of options.
+- *Ranking by the players' own expected points*: ignores whether the new player would even start in your XI.
+- *Keeping today's flag for all five weeks*: sells every player with a knock.
+- *Clearing every flag after the next week*: buys players with long injuries.
+
+---
+
+## D33. Excusing injury absences before snapshots existed, and doubtful-then-absent matches (answers Q7)
+
+*2026-09-30. Both changes approved by the user.*
+
+**Context.** Q7: a regular who missed GW5 injured looked "dropped". His start rate halved, which skewed his lineup
+odds and made the transfer advice sell him (João Pedro: 45% to play, about 2.2 points a week after).
+
+**Decisions** (`fpl_agent/data/lineups.py`; this supersedes part of D14):
+- **Reconstructed flags.** For a window gameweek with no snapshot, the player's flag at that deadline is
+  **today's flag, if it was set before that deadline** (`news_added`, FPL's "last set or changed" time). An
+  unchanged flag set earlier was already in force then. A saved snapshot always wins.
+- **Doubtful counts too.** A match is excused when the player carried **any flag below 100%** (out *or*
+  doubtful) at the deadline **and played 0 minutes**. D14 excused only flagged-out players. If he played, the
+  match counts as usual.
+- **History uses today's real flags, even for later horizon weeks.** `simulate_ahead` clears a knock for weeks
+  2–5 (D32), but only for availability (`predict_all(..., available_as=...)`). Otherwise the recovered copy
+  would lose the excuse for the match he missed. A first live run caught this: his later weeks stayed at
+  2.1–2.4 until it was fixed.
+
+**Effect (GW6).** João Pedro plays in 61% of simulations (was 45%). He projects 2.9 points this week (was 2.1) and
+3.0–3.4 after (was 2.1–2.4). The transfer advice still sells him for Barry (who projects 4.0–5.4), but the
+comparison is now fair. The back-test is unchanged: rebuilt past seasons carry no flags.
+
+**Alternatives.**
+- *Waiting for GW5 to leave the 2-gameweek window*: the decisions for GW6–7 would stay biased.
+- *Reconstruction alone*: doesn't help doubtful players, and João Pedro was 75%.
+- *Excusing every 0-minute match*: hides real droppings.
+
+**Consequences.**
+- A doubtful player left out for rotation is now excused too, which flatters his start rate slightly.
+- To check at GW11 with the snapshot data (`docs/maintenance.md`): how often "doubtful, then 0 minutes" was
+  followed by the player starting the next match.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1469,3 +1574,19 @@ scaled by availability.
   scheme for the second half (GW20–38)**, where the double gameweeks cluster late and the user may want a
   different starting point.
 - *Availability scaling*: check the first cases where an opponent's habitual captain was flagged. Did they switch?
+
+**Q7. Absences before flag snapshots existed (GW1–5) count as "benched while fit".** *(Found in D32, 2026-09-30.)* *Answered in D33: both changes made.*
+The lineup model excuses a missed match only if a snapshot shows the player flagged out at that deadline (D14).
+Snapshots began at GW6, so an injury absence in GW4–5 looks like being dropped. With the 2-gameweek window, one
+such match halves a regular's start rate: João Pedro, who started GW1–4, is predicted to play 45% this week and
+about 2.2 points a week after. This drives the "sell João Pedro" recommendation and his part 4 lineup numbers. It
+fades by itself once GW5 leaves the window (from GW8), but decisions before then are affected.
+Two changes, for the user to decide (his case needs **both**):
+- *Reconstruct past flags from the current one.* A flag whose `news_added` is before an earlier deadline, and
+  is still unchanged, was in force at that deadline too. It's cheap and uses only facts FPL publishes. On its
+  own it only helps players flagged *out* (D14 excuses only those). João Pedro was 75% at the GW5 deadline.
+- *Also excuse a doubtful (50/75%) player's match when he played 0 minutes.* D14 deliberately doesn't, because a
+  doubtful player left out can also be rotation. The back-test can't settle it (the archives have no historical
+  flags). From GW6 on, snapshots let us measure how often "doubtful, then 0 minutes" was followed by the player
+  going straight back into the team.
+- Recommendation: do both now, and check the second with the snapshot data at GW11 (with the D13 re-measurement).
