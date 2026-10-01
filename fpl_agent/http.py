@@ -35,7 +35,7 @@ class HttpSession(Protocol):
         self,
         url: str,
         *,
-        data: Mapping[str, str] | None = ...,
+        data: str | Mapping[str, str] | None = ...,  # a JSON string for FPL's write endpoints
         headers: Mapping[str, str] | None = ...,
         timeout: float | None = ...,
     ) -> HttpResponse: ...

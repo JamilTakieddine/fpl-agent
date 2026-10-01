@@ -1,15 +1,18 @@
-"""Read-only FPL API client.
+"""FPL API client: reads, plus the one write (saving a lineup).
 
 Politeness and resilience (docs/decisions.md D8):
 - bootstrap-static is fetched at most once per client (i.e. per run).
 - GETs retry 3x with backoff on timeouts, 429 and 5xx, since FPL is flaky around deadlines.
   Retries are GET-only: never auto-retry a write, it could apply twice.
 - Every response is validated into a pydantic model at this boundary.
-Writes (saving a lineup) arrive in Phase 3, behind DRY RUN by default.
+The one write, save_lineup, is only ever called by fpl_agent.submit, which is DRY RUN unless
+--live / FPL_LIVE=1 is given and runs its safety checks first (D34).
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 import requests
@@ -29,7 +32,8 @@ from fpl_agent.data.models import (
 )
 from fpl_agent.http import HttpSession
 
-API = "https://fantasy.premierleague.com/api"
+SITE = "https://fantasy.premierleague.com"
+API = f"{SITE}/api"
 TIMEOUT_S = 20
 MAX_PAGES = 20  # guard against a pagination loop; H2H leagues are small
 USER_AGENT = "fpl-agent (+https://github.com/JamilTakieddine/fpl-agent)"
@@ -119,6 +123,26 @@ class FplClient:
         """Any manager's picks for a gameweek, or None if not visible (upcoming gameweek: 404)."""
         data = self._get(f"/entry/{entry_id}/event/{event}/picks/", allow_404=True)
         return None if data is None else EntryPicks.model_validate(data)
+
+    def save_lineup(self, entry_id: int, payload: Mapping[str, Any]) -> int:
+        """POST a team sheet to /my-team/ (D34). Never retried: a retried write could apply twice
+        (make_session retries GETs only). Returns the status (FPL answers 202 Accepted)."""
+        if self.tokens is None:
+            raise RuntimeError("saving a lineup needs an AuthProvider")
+        headers = {
+            **self.tokens.auth_headers(),
+            "Content-Type": "application/json",
+            "Origin": SITE,
+            "Referer": f"{SITE}/my-team",
+        }
+        resp = self.http.post(
+            f"{self.base_url}/my-team/{entry_id}/",
+            data=json.dumps(payload),
+            headers=headers,
+            timeout=TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        return resp.status_code
 
     def event_live(self, event: int) -> EventLive:
         """Minutes, starts and per-match breakdown for every player in one gameweek."""

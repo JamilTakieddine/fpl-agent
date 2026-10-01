@@ -1466,6 +1466,61 @@ comparison is now fair. The back-test is unchanged: rebuilt past seasons carry n
 
 ---
 
+## D34. Saving the lineup: DRY RUN by default, checks against a fresh read, one un-retried POST
+
+*Phase 3 part 6, 2026-09-30.*
+
+**Context.** Phase 0 proved the write: `POST /api/my-team/{entry}/` with `{chip, picks: [{element, position,
+is_captain, is_vice_captain}]}` returned 202 Accepted, and the team read back matched. CLAUDE.md: anything that
+writes to FPL defaults to DRY RUN, needs `--live` (or `FPL_LIVE=1` in the cloud), and logs the exact payload
+first.
+
+**Decisions** (`fpl_agent/submit.py`, `FplClient.save_lineup`):
+- **The payload is a pure function of the lineup.** Positions 1–11 are the starters in FPL order, 12 is the bench
+  keeper, 13–15 the bench in auto-sub order, plus the captain and vice flags. `chip` is always `null` until
+  Phase 5.
+- **DRY RUN unless told otherwise.** `python -m fpl_agent.optimize` prints the exact payload and sends nothing.
+  `--live`, or `FPL_LIVE=1` for the Phase 4 job, saves the *recommended* lineup.
+- **Checks against a fresh read of the team, just before sending.** Any failure means nothing is sent, and the
+  reasons are printed.
+  - **Before the deadline, with a 1-minute margin.** After the deadline, the same request would quietly set the
+    *next* gameweek's team: a wrong-week save is worse than none.
+  - **Exactly the current squad.** You may have made a transfer on the site since the recommendation was
+    computed.
+  - **The rules engine passes the lineup** (formation, bench keeper first, captain and vice among the starters
+    and different).
+  - **No chip** (D28).
+- **One POST, never retried** (the session retries GETs only, D8). A failed save is reported, not repeated: a
+  retried write could apply twice. After a save, **the team is read back and compared**.
+- **The save comes before the transfer section** in the command, so a live save never waits behind the extra
+  simulations.
+
+**Transfers (spike, pending).** Transfers stay recommendation-only until Phase 5. The transfers endpoint has never
+been exercised. Instead of a test transfer from code (a real transfer, possibly a −4), the user records the
+request the website itself sends when they make a transfer they want anyway
+(`spikes/phase3_transfers.md`, in their own browser). The agent's Playwright login stays untouched, because a
+second login could rotate or revoke its refresh token (Q1, D12). The expected shape is unverified (Q8).
+
+**Verification** (fake HTTP session, so nothing can reach FPL):
+- the payload shape;
+- `--live` / `FPL_LIVE=1` and nothing else enables a save;
+- each check blocks a save (deadline, a changed squad, an illegal lineup, a chip);
+- a dry run sends nothing but logs the payload;
+- a live save POSTs once with the auth, `Origin` and `Referer` headers, logs before sending, and verifies the
+  read-back;
+- a read-back mismatch is reported;
+- a failed POST raises and isn't retried.
+- Live: the dry run on the real GW6 team passes every check.
+
+**Alternatives.**
+- *Saving the lineup at the end of the run*: it would wait behind the transfer simulations, closer to the
+  deadline.
+- *Retrying a failed save*: it could apply twice. The Phase 4 job instead alerts by email.
+- *A test transfer from code*: costs a real transfer.
+- *Capturing with the agent's Playwright browser*: risks the agent's login.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1590,3 +1645,10 @@ Two changes, for the user to decide (his case needs **both**):
   flags). From GW6 on, snapshots let us measure how often "doubtful, then 0 minutes" was followed by the player
   going straight back into the team.
 - Recommendation: do both now, and check the second with the snapshot data at GW11 (with the D13 re-measurement).
+
+**Q8. What exactly does the transfers endpoint expect?** *(D34, 2026-09-30.)* Expected, unverified:
+`POST /api/transfers/` with `{"chip", "entry", "event", "transfers": [{"element_in", "element_out", "purchase_price",
+"selling_price"}]}`, with Wildcard and Free Hit set via `chip`. Does the site send a check request before the
+confirm?
+Recommendation: capture it from the website the next time the user makes a transfer anyway
+(`spikes/phase3_transfers.md`), well before Phase 5 needs it (about GW12).

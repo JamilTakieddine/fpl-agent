@@ -1,20 +1,23 @@
-"""Lineup recommendation for the next gameweek: python -m fpl_agent.optimize
+"""Lineup recommendation for the next gameweek: python -m fpl_agent.optimize [--live]
 
-DRY RUN, read-only (D31): simulates the gameweek, models this week's H2H opponent (or FPL's
+DRY RUN by default (D31, D34): simulates the gameweek, models this week's H2H opponent (or FPL's
 average), and prints the recommended XI, bench order, captain and vice-captain next to your
-current lineup, then transfer advice over the next five gameweeks (D32). Nothing is sent to
-FPL; saving a lineup is Phase 3 part 6, behind --live. Transfers are recommendations only, and
-chips are shown as information: both are decided by the Phase 5 planner.
+current lineup, the exact save payload, then transfer advice over the next five gameweeks
+(D32). Only `--live` (or FPL_LIVE=1) saves the recommended lineup, after the checks in
+fpl_agent/submit.py. Transfers are recommendations only, and chips are shown as information:
+both are decided by the Phase 5 planner.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
 import numpy as np
+import requests
 from numpy.typing import NDArray
 
 from fpl_agent.auth import AuthError, FileTokenStore, RateLimitedError, TokenManager
@@ -41,6 +44,7 @@ from fpl_agent.optimize.rules import (
 )
 from fpl_agent.optimize.scoring import score_lineup, squad_sims
 from fpl_agent.optimize.transfers import WEEK_WEIGHTS, Option, recommend_transfers
+from fpl_agent.submit import live_mode, submit_lineup
 
 CHIP_NAMES = {"3xc": "Triple Captain", "bboost": "Bench Boost"}
 
@@ -144,7 +148,7 @@ def main() -> int:
     xp = dict(zip(mine.ids, mine.points.mean(axis=1), strict=True))
 
     print(f"GW{nxt.event}, deadline {nxt.deadline:%a %d %b %H:%M} UTC, vs {label}")
-    print("\nRecommended lineup (DRY RUN: nothing is sent to FPL)")
+    print("\nRecommended lineup")
     for p in best.starters:
         role = " (C)" if p == best.captain else " (V)" if p == best.vice_captain else ""
         print(f"  {positions[p]}  {names[p] + role:<22} {xp[p]:4.1f}")
@@ -183,6 +187,23 @@ def main() -> int:
         f"\nSearched {rec.candidates:,} lineups within the points guard "
         f"({rec.xis_scored} of {rec.xis_total} XIs) in {searched:.1f}s."
     )
+
+    print()
+    live = live_mode(sys.argv[1:], os.environ)
+    try:
+        submit_lineup(
+            client,
+            settings.entry_id,
+            best,
+            positions,
+            limits,
+            nxt.deadline,
+            datetime.now(UTC),
+            live,
+        )
+    except requests.RequestException as e:  # never retried: a write could apply twice (D34)
+        print(f"SAVE FAILED ({type(e).__name__}: {e}). Not retried; check the team on the site.")
+        return 1
 
     print_transfers(client, nxt, team, positions, limits, opponent, rec.best.p_target)
     print(f"\n{time.perf_counter() - started:.0f}s in total.")
