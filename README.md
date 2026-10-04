@@ -21,7 +21,9 @@ Status:
   Part 5 done: transfer recommendations over the next 5 gameweeks (budget, club limit, free-transfer and
   hit thresholds), recommendation only. Part 6 done: saving the lineup, DRY RUN unless `--live`, with
   checks against a fresh read of the team (deadline, squad, rules) and a read-back after saving.
-  Next: back-testing the optimizer on real gameweeks.
+  Part 7 done: back-testing the optimizer against the league's real GW2–5 lineups
+  (`docs/optimizer_backtest.md`). There's no evidence yet that it beats a careful manager; the fair test
+  needs GW6+ (injury flags). Next: Phase 4, deploying to the cloud.
 
 ## Setup
 ```bash
@@ -46,6 +48,7 @@ python scripts/fetch_history.py   # download last season's archives for back-tes
 python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
 python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
 python scripts/fit_opponent.py    # refit the opponent captain model and AVERAGE scale on league data
+python -m fpl_agent.validation.optimizer  # back-test the optimizer vs the league's real lineups
 python -m fpl_agent.validation --report  # back-test both seasons; writes docs/validation.md
 ```
 

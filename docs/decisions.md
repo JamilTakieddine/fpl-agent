@@ -1521,6 +1521,88 @@ second login could rotate or revoke its refresh token (Q1, D12). The expected sh
 
 ---
 
+## D35. Back-testing the optimizer on the league's real lineups (GW2–5): no evidence yet that it beats managers
+
+*Phase 3 part 7, 2026-10-01. Scope approved: lineup and captain only (transfers wait for Phase 5); AVERAGE weeks use
+today's ownership; markdown report plus a published HTML page.*
+
+**Method** (`fpl_agent/validation/optimizer.py`, `python -m fpl_agent.validation.optimizer [--reuse]`):
+- **Setup.** For each of GW2–5:
+  - rebuild the simulation from what was known before the deadline (the D24 point-in-time rebuild, 10,000
+    simulations);
+  - take each of the 11 league managers' **actual squads** (44 team-weeks) and their actual H2H opponent;
+  - model the opponent as part 3 would have before the deadline.
+- **Three lineups of the same squad** are scored on **real results** by the rules engine, with real minutes (so
+  auto-subs happen as they did) and the manager's own chip and hits:
+  - what the manager played;
+  - the agent's recommendation;
+  - the highest-expected-points lineup.
+- **Check:** the managers' own team sheets reproduce FPL's official scores in **44 of 44** team-weeks.
+- **The report also explains the gap.** It looks at the starters only one side picked, and adds a "clean"
+  comparison: only team-weeks where every swapped player played the gameweek before.
+- **Records keep the lineups,** in the gitignored cache. Reports never show entry IDs.
+
+**Results** (`docs/optimizer_backtest.md`):
+- **Real points:**
+  - Agent vs manager: **−2.2 points per team-week (95% −4.7 to +0.4)**.
+  - Highest-expected-points vs manager: −1.8.
+  - The model *expected* the agent to gain +1.1.
+- **H2H:** agent 19-0-25 against the managers' 21-0-23. Of the 6 results it changed, 2 were better and 4 worse.
+- **Win chances:** predicted 55%, actual 43% (Brier 0.260, against 0.250 for a coin flip). Over-optimistic in this
+  sample.
+- **Where it loses.** It changes about 2 starters per team-week (same XI as the manager in 1 of 44).
+  - Of its 87 swapped-in starters, **24% played 0 minutes** (managers' picks: 11%).
+  - **18 of those were out two weeks running:** injuries FPL had flagged, which managers saw and the rebuilt
+    weeks can't, since there were no flag snapshots before GW6. Part 4's "start a doubtful player, the bench
+    covers him" logic is exactly what backfires when availability is wrong.
+  - Even among swapped players who played, managers' picks scored more (4.5 vs 3.2 points).
+  - The agent also swapped in forwards far more (24 vs 6). This season's GW2–5 has forwards overpredicted by
+    +0.59 (72 cases), but 2025/26 shows no forward bias (−0.13, about 600 cases), so this is on the watch list,
+    not a fix.
+- **Clean comparison:** −1.9 (95% −5.8 to +2.1) over 21 team-weeks. Inconclusive.
+
+**Reading.**
+- This is **no evidence that the agent's lineups beat a careful human manager yet**. The point estimates are
+  small losses, and the sample can't separate them from zero.
+- The injury gap is an artifact of the back-test (live runs have flags), but it doesn't explain the whole
+  difference.
+- The agent's value so far is automation (never missing a deadline) and consistency. Whether it also *adds*
+  points has to be shown on fair weeks.
+
+**Humility test** (asked by the user, 2026-10-04; in the report as "A humbler agent"). Keep the manager's lineup
+unless the agent's *expected* gain is at least T points:
+
+| T (points) | Switches | Agent vs manager (95%) |
+|---|---|---|
+| 0 (today's agent) | 43 | −2.1 (−4.7 to +0.4) |
+| 0.5 | 27 | −0.9 (−2.9 to +1.2) |
+| 1.0 | 17 | −1.0 (−2.7 to +0.8) |
+| 1.5 | 15 | −0.5 (−2.1 to +1.1) |
+| 2.0 | 10 | −0.2 (−1.2 to +0.9) |
+| 3.0 | 2 | +0.2 (−0.1 to +0.5) |
+
+- **Most of the loss came from small-margin switches.** Predicted gains under 0.5 points covered 16 team-weeks,
+  10 of which started a player out two weeks running (the injury blind spot), for a real −3.4. Live flags remove
+  most of these.
+- **Bigger predicted gains did no better.** 27 team-weeks, only 5 injury cases, about −1.4. Not significant, but
+  no sign that the model's confident lineup changes beat an informed manager.
+- **Caveat for autonomy.** Here the lineup kept is a *fresh, informed human choice*. When the agent runs alone,
+  the lineup it would keep is the one saved on FPL, usually last week's, which hasn't seen this week's news. So
+  this measures deferring to a manager, not deferring to last week's lineup.
+- The thresholds were chosen on the same 44 team-weeks, so the curve is a guide, not a tuned value.
+
+**Alternatives.**
+- *Skipping the back-test until GW10*: this already caught the doubtful-starter risk and the forward signal.
+- *Inventing past flags* (e.g. treating "0 minutes last week" as injured): that would grade the model with rules
+  the live agent doesn't use.
+- *Comparing only against FPL's average*: managers in this league are the real competition.
+
+**Consequences (Q9).** The real verdict needs fair gameweeks, GW6 onward, where the agent has the same injury
+flags as managers. Rerun at about GW10–11, and keep comparing the agent's weekly dry-run pick with the user's own
+lineup.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1652,3 +1734,16 @@ Two changes, for the user to decide (his case needs **both**):
 confirm?
 Recommendation: capture it from the website the next time the user makes a transfer anyway
 (`spikes/phase3_transfers.md`), well before Phase 5 needs it (about GW12).
+
+**Q9. Does the agent's lineup beat a careful human manager?** *(D35, 2026-10-01.)* On GW2–5 the answer was "no
+evidence": −2.2 points per team-week (95% −4.7 to +0.4), confounded by missing injury flags.
+Recommendation:
+- Rerun the back-test at about GW10–11 on GW6+ (flags available; about 50 more team-weeks).
+- Until then, keep the agent's lineups advisory, as they already are, and log each week's dry-run pick against
+  the user's actual lineup.
+- Before Phase 4 makes the agent set the lineup itself, decide with that evidence. If it still trails, consider
+  making the agent change fewer starters, for example only when the expected gain clears the noise.
+- Watch the forward bias (+0.59 on this season's 72 cases).
+- *Humility test (D35):* a minimum expected gain before switching (about 1–1.5 points) removed most of GW2–5's
+  loss, but no threshold beat the managers. Decide at GW10–11, on fair weeks, whether the autonomous agent should
+  only change the saved lineup when the gain clears such a threshold.
