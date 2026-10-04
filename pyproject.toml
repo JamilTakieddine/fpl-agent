@@ -10,18 +10,26 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
-    "playwright>=1.45",
     "pydantic>=2.9",
     "python-dotenv>=1.0",
     "requests>=2.32",
 ]
 
 [project.optional-dependencies]
+# The browser login (spikes/phase0_auth.py) runs on your machine only, never in the cloud job.
+login = ["playwright>=1.45"]
+# Phase 4: the Cloud Run job's Google Cloud services (D36).
+cloud = [
+    "google-cloud-scheduler>=2.13",
+    "google-cloud-secret-manager>=2.20",
+    "google-cloud-storage>=2.18",
+]
 dev = [
     "mypy>=1.13",
     "pre-commit>=4.0",
     "pytest>=8.0",
     "ruff>=0.8",
+    "types-protobuf",
     "types-requests",
 ]
 

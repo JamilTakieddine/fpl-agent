@@ -1,0 +1,22 @@
+# What `gcloud run jobs deploy --source` may upload to Cloud Build: never secrets or local state (D36).
+# gitignore rules: a leading / anchors a pattern at the project root (plain `data/` would also drop
+# the code package fpl_agent/data/).
+/.env
+/.env.*
+!/.env.example
+/.secrets/
+/data/
+/.venv/
+/.git/
+__pycache__/
+*.pyc
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+*.egg-info/
+/build/
+/tests/
+/docs/
+/spikes/
+/scripts/
+/deploy/

@@ -18,8 +18,8 @@ from fpl_agent.data.kalshi import KalshiClient
 from fpl_agent.data.lineups import history_events, predict_all, window_events
 from fpl_agent.data.models import Bootstrap, EventLive, Fixture
 from fpl_agent.data.odds import load_odds
-from fpl_agent.data.odds_store import FileOddsStore, usable_saved_odds
-from fpl_agent.data.snapshots import FileSnapshotStore, FlagSnapshot
+from fpl_agent.data.odds_store import FileOddsStore, OddsStore, usable_saved_odds
+from fpl_agent.data.snapshots import FileSnapshotStore, FlagSnapshot, SnapshotStore
 from fpl_agent.model.gameweek import GameweekSimulation, simulate_gameweek
 from fpl_agent.model.points import PointsSamples
 
@@ -40,9 +40,17 @@ class NextGameweek:
 
 
 def simulate_next(
-    client: FplClient, settings: Settings, now: datetime, n_sims: int = N_SIMS
+    client: FplClient,
+    settings: Settings,
+    now: datetime,
+    n_sims: int = N_SIMS,
+    *,
+    snapshot_store: SnapshotStore | None = None,
+    odds_store: OddsStore | None = None,
 ) -> NextGameweek | None:
-    """Simulate the next gameweek whose deadline is after `now` (None if the season is over)."""
+    """Simulate the next gameweek whose deadline is after `now` (None if the season is over).
+    Snapshots and saved odds come from the given stores (the cloud job's bucket, D36), else the
+    local files."""
     boot = client.bootstrap()
     fixtures = client.fixtures()
     cal = build_calendar(boot, fixtures)
@@ -53,13 +61,14 @@ def simulate_next(
 
     # Live data for the fits (minutes, bonus); the lineup model uses its own shorter window.
     lives = {gw: client.event_live(gw) for gw in history_events(event)}
-    snap_store = FileSnapshotStore(settings.snapshot_dir)
+    snap_store = snapshot_store or FileSnapshotStore(settings.snapshot_dir)
     snaps = {gw: s for gw in window_events(event) if (s := snap_store.load(gw)) is not None}
     predictions = predict_all(boot.elements, cal, lives, event, snaps)
 
     gw_fixtures = list(cal.get(event).fixtures)
     odds, _ = load_odds(KalshiClient(client.http), gw_fixtures, boot)
-    saved = usable_saved_odds(FileOddsStore(settings.odds_dir).load(event), gw_fixtures)
+    odds_saved = odds_store or FileOddsStore(settings.odds_dir)
+    saved = usable_saved_odds(odds_saved.load(event), gw_fixtures)
     sim = simulate_gameweek(
         boot, cal, fixtures, event, predictions, lives, odds, saved, n_sims=n_sims, seed=event
     )

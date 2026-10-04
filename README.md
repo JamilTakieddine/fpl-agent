@@ -28,7 +28,7 @@ Status:
 ## Setup
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"   # runtime deps + ruff, mypy, pytest, pre-commit
+pip install -e ".[dev,login,cloud]"   # + tooling, the browser login, Google Cloud libs
 playwright install chromium
 pre-commit install        # ruff + mypy + hygiene checks on every commit
 cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID

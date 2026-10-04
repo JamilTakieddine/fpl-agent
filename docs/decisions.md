@@ -1603,6 +1603,99 @@ lineup.
 
 ---
 
+## D36. Phase 4: a self-scheduling Cloud Run job, one token in Secret Manager, three runs per deadline
+
+*Phase 4, 2026-10-04. Approved by the user: three runs per deadline, Gmail app password, gcloud script (no
+Terraform), region us-east1 (chosen over London: free Cloud Storage tier, cheaper Cloud Run; the job talks to FPL
+behind Cloudflare, Kalshi in the US, and Gmail, so the user's location doesn't matter). Live saving on: the agent
+writes the lineup itself.*
+
+**Runs** (`fpl_agent/run.py`, `fpl_agent/cloud/schedule.py`):
+- **check, 24 h before the deadline.** Refreshes the FPL token, which proves the login works, and records the flag
+  and odds snapshots. It emails only if something needs the user (for example "log in again"), while there's still
+  time to fix it.
+- **save, 60 min before.** Runs the gameweek (`fpl_agent/agent.run_gameweek`, shared with
+  `python -m fpl_agent.optimize`), saves the lineup through the D34 checks, and emails the full summary.
+- **final, 15 min before.** Re-runs with the latest news, saves only if the pick changed, and emails only then or
+  on a failure. If it fails, the save run's lineup stands: never miss a deadline (goal 1).
+- **Every run, even a failed one, re-points all three Cloud Scheduler jobs** to their next times, computed from
+  FPL's `deadline_time` (CLAUDE.md). So one bad run can't break the chain.
+- **Any error emails the user** before the job exits non-zero.
+
+**The single-token rule.** The refresh token rotates on every use, and sending a replaced one revokes the login
+(D12). So:
+- `SecretManagerTokenStore` saves by adding a new version, then **disabling every older version**.
+- A failed save sets a `needs-relogin` label, and the next run stops and emails instead of refreshing with the
+  stale token (Q2). The current run still has a valid access token for an hour, so it carries on.
+- After `python -m fpl_agent.cloud.upload_token`, **every command, local ones included, uses that one token**
+  (`FPL_TOKEN_STORE=secret-manager`), and the local file is retired.
+- A **run lock** (an object in the bucket that only one process can create at a time) means a local command and a
+  cloud run can never refresh at once. A scheduled run that finds the lock held waits up to about 3 minutes.
+
+**Other pieces.**
+- **State in Cloud Storage.** Snapshots and saved odds keep the same names and JSON as the local files, behind
+  the existing store protocols. `simulate_next` takes the stores as parameters.
+- **Email** through Gmail SMTP with an app password. The address and password reach the job as environment
+  variables straight from Secret Manager, never in code or the public repo.
+- **Container.** `python:3.12-slim` plus the `cloud` extra. Playwright moved to a `login` extra, because the
+  browser login runs on the user's Mac only. `.dockerignore` and `.gcloudignore` keep `.env`, `.secrets/` and
+  `data/` out of the upload and the image.
+- **Least-privilege accounts.** The runner gets admin on the token secret only, read access to the email secrets,
+  objects in its bucket, and the right to re-point Scheduler. A separate account may only trigger the job.
+- **Job settings:** 4 GiB (the simulation peaks around 2 GB, D31), 15-minute timeout, no retries (a retried run
+  could save twice; the final run is the retry), no parallel runs.
+
+**Resources, and why each one** (project `fpl-agent-jt` (`fpl-agent` was taken), region us-east1):
+
+| Resource | What it does here | Rejected alternatives |
+|---|---|---|
+| **Cloud Run job** `fpl-agent` (2 vCPU, 4 GiB, 15 min, 1 task, no retries) | Runs the container on demand. It pays only while running and scales to zero. A *job* (run to completion) fits a batch task. | *Cloud Run service*: an always-on web server we'd have to call. *Compute Engine VM*: pays 24/7, and OS patching is ours. *Cloud Functions*: 9-minute and memory limits are tight for a 2 GB simulation. *GitHub Actions cron*: free, but its schedules can run late by many minutes, and it would need the FPL token as a repo secret. |
+| **Cloud Scheduler** (3 jobs) | Triggers the job at exact times. It calls the Cloud Run "run" API with OAuth as the `fpl-agent-scheduler` account. | *A sleep loop on a VM*: it pays 24/7. *Fixed cron polling FPL every 15 min*: wasted runs and FPL requests. *Workflows or Pub/Sub*: more pieces for no gain. |
+| **Secret Manager** (`fpl-tokens`, `fpl-email`, `fpl-email-app-password`) | Encrypted, versioned, access-controlled secrets. Versions make the "one live token" rule enforceable (disable old ones). Cloud Run injects the email secrets as environment variables. | *Environment variables baked into the job*: visible to anyone who can view the job, and unversioned. *A file in the bucket*: no versions to disable, weaker access control. |
+| **Cloud Storage bucket** `fpl-agent-jt-fpl-agent-state` | The job's memory between runs: flag snapshots, saved odds, and the run lock (create-only-if-absent is atomic on the server). | *Firestore*: a database for a handful of JSON files. *Container disk*: wiped after every run. |
+| **Artifact Registry + Cloud Build** | Cloud Build turns the source into an image (from the Dockerfile) and stores it in Artifact Registry. Created automatically by `gcloud run jobs deploy --source`. | *Building locally with Docker and pushing*: needs Docker Desktop on the Mac, and the image would be built for Apple silicon rather than the cloud's x86. |
+| **Two service accounts** | `fpl-agent-runner` (the job's identity): admin on the token secret only, read on the email secrets, objects in its bucket, Scheduler admin to re-point its jobs. `fpl-agent-scheduler`: may only trigger the job. | *The default compute account*: broad project rights. A leaked or buggy job could touch everything. |
+| **Budget alert** ($5/month; emails at 50/90/100%) | Guards against surprises. Expected cost is $0 to a few cents: free tiers cover Cloud Run, Scheduler (3 jobs), Secret Manager, and Storage in us-east1. Artifact Registry over 0.5 GB costs about $0.10/GB-month. | — |
+
+**Deploy findings** (2026-10-04, each fixed in `deploy/deploy.sh` or the code):
+- **Build permission.** New projects (since 2024) don't let the default compute account read the uploaded source.
+  The script now grants it `roles/cloudbuild.builds.builder`.
+- **`.gcloudignore` follows gitignore rules.** The pattern `data/` also dropped the code package
+  `fpl_agent/data/`, and the first cloud run failed with `No module named fpl_agent.data`. Patterns are now
+  anchored (`/data/`), and the upload list was checked with `gcloud meta list-files-for-upload` (no `.env`,
+  `.secrets/` or `data/`).
+- **gRPC DNS.** Google's Python clients default to gRPC, whose own DNS resolver failed on the Mac ("Could not
+  contact DNS servers"). Secret Manager and Scheduler clients now use the REST transport, which works everywhere.
+- **Scheduler flags.** `jobs update http` takes `--update-headers`, not `--headers`. Updates also no longer pass
+  `--schedule`, so a redeploy can't reset the real schedule to the placeholder.
+- **Local Google auth.** The Python libraries need Application Default Credentials (`gcloud auth
+  application-default login` with a quota project), separate from the CLI login.
+- **A safety gap closed.** `upload_token` refuses to run again unless a fresh browser login is newer than the last
+  upload. The old browser state holds a replaced refresh token, and uploading it would revoke the login.
+
+**Verified live.**
+- The first cloud `check` logged in from the cloud and saved the GW6 snapshot and odds (9/10 matches) to the
+  bucket. It set the schedule: check Fri 9 Oct 10:00, save Sat 10 Oct 09:00, final Sat 10 Oct 09:45 UTC.
+- A test email arrived.
+- A token refresh through Secret Manager made version 2 the only enabled one (version 1 disabled) and released
+  the lock.
+
+**Alternatives.**
+- *A fixed schedule polling FPL every 15 minutes*: many wasted runs and requests.
+- *One run per deadline*: a single failure misses the deadline.
+- *A local file token plus a cloud copy*: two copies would revoke the login.
+- *Terraform*: production-grade, but a large extra tool for about 6 resources.
+- *SendGrid or the Gmail API*: another signup, or an OAuth consent flow.
+- *London region*: no free storage tier, higher Cloud Run price, no benefit for this job.
+
+**Consequences.**
+- The user's to-dos: a Google Cloud project with billing (and a budget alert), a Gmail app password, and running
+  the deploy script, then `upload_token`, then a first `check` run.
+- After that, the agent saves the lineup on its own every gameweek. Transfers and chips stay with the user until
+  Phase 5 (and the Q8 capture).
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
