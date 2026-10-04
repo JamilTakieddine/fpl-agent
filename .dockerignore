@@ -1,0 +1,20 @@
+# Never ship secrets or local state into the image (D36). Docker matches from the context root.
+.env
+.env.*
+!.env.example
+.secrets/
+data/
+.venv/
+.git/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+tests/
+docs/
+spikes/
+scripts/
+deploy/
