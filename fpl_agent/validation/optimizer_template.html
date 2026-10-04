@@ -1,0 +1,248 @@
+<title>Optimizer Back-test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    --model: #2a78d6;
+    --good: #006300;
+    --bad: #b3261e;
+    --watch: #a15c00;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --ring: rgba(255, 255, 255, 0.10);
+      --model: #3987e5;
+      --good: #0ca30c;
+      --bad: #f2645b;
+      --watch: #eda100;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --model: #3987e5;
+    --good: #0ca30c;
+    --bad: #f2645b;
+    --watch: #eda100;
+  }
+  body { background: var(--page); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: flex; flex-direction: column; gap: 40px; }
+  header { display: flex; flex-direction: column; gap: 10px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(28px, 4.2vw, 40px); line-height: 1.12; font-weight: 600; margin: 0; text-wrap: balance; }
+  h2 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+  p { margin: 0; max-width: 68ch; color: var(--ink-2); }
+  p.lede { font-size: 17px; color: var(--ink); }
+  section { display: flex; flex-direction: column; gap: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+  .tile .value { font-size: 30px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .tile .value small { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+  .tile .label { font-size: 13px; color: var(--ink-2); }
+  .tile .sub { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 8px; }
+  figcaption { display: flex; flex-direction: column; gap: 2px; }
+  figcaption .sub { font-size: 12.5px; color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font-family: var(--sans); font-size: 11px; fill: var(--muted); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  td.num, th.num { text-align: right; }
+  tr.strong td { font-weight: 600; }
+  .res { font-family: var(--mono); font-weight: 500; }
+  .res.W { color: var(--good); } .res.L { color: var(--bad); } .res.D { color: var(--watch); }
+  ul.notes { margin: 0; padding-left: 20px; color: var(--ink-2); display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+  footer { color: var(--muted); font-size: 12.5px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">fpl-agent · phase 3 · optimizer back-test</div>
+    <h1>Optimizer Back-test</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <section>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section>
+    <h2>Every team-week, agent minus manager</h2>
+    <figure>
+      <figcaption>
+        <span>Real points of the agent's lineup minus what the manager actually played, same squad, sorted.</span>
+        <span class="sub">Green: the agent scored more. Red: the manager did. Grey: the same.</span>
+      </figcaption>
+      <svg id="diffs" role="img" aria-label="Sorted per team-week point differences"></svg>
+    </figure>
+  </section>
+
+  <section>
+    <h2>H2H results against the opponent's real score</h2>
+    <div class="scroll"><table id="h2h"></table></div>
+    <p id="flips"></p>
+  </section>
+
+  <section id="swaps-section" hidden>
+    <h2>Why the agent differs</h2>
+    <p id="swaps-lede"></p>
+    <div class="scroll"><table id="swaps"></table></div>
+    <p id="swaps-note">"Out two weeks running" means 0 minutes that gameweek and the one before: almost always an injury FPL had flagged, which managers saw and the rebuilt weeks don't.</p>
+    <p id="clean"></p>
+  </section>
+
+  <section>
+    <h2>A humbler agent</h2>
+    <p>Keep the manager's lineup unless the agent's expected gain is at least T points. T = 0 is today's agent.</p>
+    <div class="scroll"><table id="humility"></table></div>
+  </section>
+
+  <section>
+    <h2>By gameweek</h2>
+    <div class="scroll"><table id="pergw"></table></div>
+  </section>
+
+  <section id="mine-section" hidden>
+    <h2>Your team</h2>
+    <div class="scroll"><table id="mine"></table></div>
+  </section>
+
+  <section>
+    <h2>Caveats</h2>
+    <ul class="notes" id="caveats"></ul>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const S = DATA;
+  if (!S) return;
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const sign = (x, d = 2) => (x >= 0 ? "+" : "") + x.toFixed(d);
+  const pct = (x) => (100 * x).toFixed(1) + "%";
+  const rec = (r) => `${r.W}-${r.D}-${r.L}`;
+
+  const gws = S.gameweeks;
+  $("lede").textContent = `Every manager in the H2H league, GW${gws[0]}–${gws[gws.length - 1]}: ${S.n} team-weeks. Same squad, three lineups, each scored on real results with the manager's own chip and hits: what the manager played, the agent's recommendation, and the highest-expected-points lineup.`;
+
+  const p = S.points.ours_vs_actual;
+  const tiles = [
+    { value: sign(p.mean), unit: "pts", label: "Agent vs manager, real points per team-week", sub: `95% ${sign(p.low, 1)} to ${sign(p.high, 1)}` },
+    { value: `${S.h2h.ours.league_points}`, unit: `vs ${S.h2h.actual.league_points}`, label: "H2H league points, agent vs manager", sub: `W-D-L ${rec(S.h2h.ours)} vs ${rec(S.h2h.actual)}` },
+    { value: `${S.flips.better}`, unit: `/ ${S.flips.worse}`, label: "Results the agent changed: better / worse", sub: `of ${S.n} team-weeks` },
+    { value: pct(S.calibration.actual_win), unit: `vs ${pct(S.calibration.predicted_win)}`, label: "Agent's lineups won, vs predicted", sub: `Brier ${S.calibration.brier.toFixed(3)} (coin flip 0.250)` },
+  ];
+  tiles.forEach((t) => {
+    const d = el("div", "tile");
+    const v = el("div", "value", t.value); v.append(" ", el("small", null, t.unit));
+    d.append(v, el("div", "label", t.label), el("div", "sub", t.sub));
+    $("tiles").append(d);
+  });
+
+  // Sorted diverging bars around zero, one per team-week, on one shared scale.
+  const diffs = S.diffs, n = diffs.length;
+  const W = 900, H = 220, padL = 34, padR = 8, padT = 10, padB = 22;
+  const lim = Math.max(5, ...diffs.map(Math.abs));
+  const step = Math.ceil(lim / 5);
+  const top = Math.ceil(lim / step) * step;
+  const y = (v) => padT + (H - padT - padB) * (top - v) / (2 * top);
+  const bw = (W - padL - padR) / n;
+  const svg = $("diffs");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const NS = "http://www.w3.org/2000/svg";
+  const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.append(e); return e; };
+  for (let v = -top; v <= top; v += step) {
+    add("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: v === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 });
+    add("text", { x: padL - 6, y: y(v) + 4, "text-anchor": "end" }, (v > 0 ? "+" : "") + v);
+  }
+  diffs.forEach((d, i) => {
+    const x = padL + i * bw + 1, h = Math.abs(y(d) - y(0));
+    const fill = d > 0 ? "var(--good)" : d < 0 ? "var(--bad)" : "var(--axis)";
+    const r = add("rect", { x, y: d >= 0 ? y(d) : y(0), width: Math.max(1, bw - 2), height: Math.max(d === 0 ? 2 : 0, h), fill, rx: 2 });
+    const title = document.createElementNS(NS, "title"); title.textContent = `${sign(d, 0)} points`; r.append(title);
+  });
+  add("text", { x: padL, y: H - 4 }, "team-weeks, sorted by difference");
+
+  const table = (id, head, rows) => {
+    const t = $(id); const tr = el("tr");
+    head.forEach(([h, num]) => tr.append(el("th", num ? "num" : null, h)));
+    const thead = el("thead"); thead.append(tr); t.append(thead);
+    const tb = el("tbody"); rows.forEach((r) => tb.append(r)); t.append(tb);
+  };
+  const row = (cells, cls) => { const tr = el("tr", cls); cells.forEach(([v, c]) => tr.append(el("td", c || null, v))); return tr; };
+
+  const names = { actual: "Manager's own lineup", ours: "Agent", max_xp: "Highest expected points" };
+  table("h2h", [["Lineup"], ["W", 1], ["D", 1], ["L", 1], ["League points", 1]],
+    ["actual", "ours", "max_xp"].map((k) => row([[names[k]], [S.h2h[k].W, "num"], [S.h2h[k].D, "num"], [S.h2h[k].L, "num"], [S.h2h[k].league_points, "num"]], k === "ours" ? "strong" : "")));
+  $("flips").textContent = `The agent's lineup changed the result in ${S.flips.better + S.flips.worse} team-weeks: ${S.flips.better} better, ${S.flips.worse} worse. Same captain as the manager in ${pct(S.captain.same_share)} of team-weeks, same starting XI in ${pct(S.captain.same_xi_share)}.`;
+
+  table("pergw", [["GW"], ["Team-weeks", 1], ["Manager", 1], ["Agent", 1], ["Highest xP", 1], ["Agent W-D-L", 1], ["Manager W-D-L", 1]],
+    S.per_gw.map((g) => row([[g.gw], [g.n, "num"], [g.actual.toFixed(1), "num"], [g.ours.toFixed(1), "num"], [g.max_xp.toFixed(1), "num"], [rec(g.ours_record), "num"], [rec(g.actual_record), "num"]])));
+
+  if (S.swaps) {
+    const sw = S.swaps, a = sw.agent_only, m = sw.manager_only, c = sw.clean;
+    $("swaps-section").hidden = false;
+    $("swaps-lede").textContent = `The agent changed ${sw.per_team_week.toFixed(1)} starters per team-week on average. These are the starters only one side picked.`;
+    table("swaps", [["Picked by"], ["Starters", 1], ["Played 0 minutes", 1], ["Out two weeks running", 1], ["Real points", 1], ["When they played", 1]],
+      [["Agent", a], ["Manager", m]].map(([k, v]) => row([[k], [v.n, "num"], [pct(v.zero_minutes), "num"], [v.out_two_weeks, "num"], [v.points.toFixed(2), "num"], [v.points_when_played.toFixed(2), "num"]])));
+    $("clean").textContent = c.n > 1
+      ? `Clean comparison, only team-weeks where every swapped player played the gameweek before: agent vs manager ${sign(c.mean)} points (95% ${sign(c.low, 1)} to ${sign(c.high, 1)}) over ${c.n} team-weeks.`
+      : `Clean comparison: only ${c.n} team-weeks qualify.`;
+  }
+
+  table("humility", [["T (points)"], ["Switches", 1], ["Agent vs manager", 1], ["95% range", 1], ["W-D-L", 1]],
+    S.humility.map((x) => row([[x.threshold.toFixed(1)], [x.switches, "num"], [sign(x.vs_manager.mean), "num"],
+      [`${sign(x.vs_manager.low, 1)} to ${sign(x.vs_manager.high, 1)}`, "num"], [rec(x.record), "num"]])));
+
+  if (S.mine.length) {
+    $("mine-section").hidden = false;
+    table("mine", [["GW"], ["You", 1], ["Agent", 1], ["Opponent", 1], ["You"], ["Agent"]],
+      S.mine.map((m) => {
+        const tr = row([[m.gw + (m.chip ? ` (${m.chip})` : "")], [m.actual, "num"], [m.ours, "num"], [m.opponent, "num"]]);
+        tr.append(el("td", "res " + m.actual_result, m.actual_result), el("td", "res " + m.ours_result, m.ours_result));
+        return tr;
+      }));
+  }
+
+  [
+    `${S.n} team-weeks is a small sample: a difference inside the 95% interval could be luck. Rerun every ~5 gameweeks as the sample grows.`,
+    "The opponent captain model was fitted on these same GW2–5 picks (D30), which slightly flatters the H2H part.",
+    "No injury flags exist before GW6, so the rebuilt weeks see everyone as fit.",
+    "AVERAGE weeks use today's ownership, the only one available for GW2–5.",
+    `Check: the managers' own team sheets, scored by our rules, reproduce FPL's official score in ${S.official_check} of ${S.n} team-weeks.`,
+  ].forEach((t) => $("caveats").append(el("li", null, t)));
+  $("foot").textContent = `Generated ${S.generated} by python -m fpl_agent.validation.optimizer. Method: D35 in docs/decisions.md.`;
+})();
+</script>
