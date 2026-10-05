@@ -200,7 +200,7 @@ def run_gameweek(
             allow_hits=allow_hits,
             making=make_transfers and live,
         )
-    chip_move = transfer_chip(say, advice, nxt, positions, limits) if advice else None
+    chip_move = transfer_chip(say, advice, positions, limits) if advice else None
     to_make: tuple[Move, ...] = ()
     transfer_chip_name: str | None = None
     if chip_move is not None and chip_move.worth_it:
@@ -327,6 +327,7 @@ class Advice:
     chip_values: dict[str, float]  # what keeping each chip beyond the horizon is worth
     weeks: list[Any]  # the horizon's points samples, the coming week first
     squad: list[SquadPlayer]  # the current squad at selling prices
+    last_chance: frozenset[str] = frozenset()  # chips whose window ends THIS gameweek
 
 
 def plan_transfers(
@@ -375,9 +376,10 @@ def plan_transfers(
         for c in team.chips
         if c.status_for_entry == "available"
     ]
-    chip_weeks, chip_values = chip_inputs(
+    chip_weeks, chip_values, expiring = chip_inputs(
         available, nxt.event, xps, [s.id for s in squad], positions, limits
     )
+    last_chance = frozenset(name for name, _, last in available if last == nxt.event)
     try:
         multi: Plan | None = optimize_plan(
             squad,
@@ -389,6 +391,7 @@ def plan_transfers(
             allow_hits=allow_hits,
             chips=chip_weeks,
             chip_values=chip_values,
+            must_play=expiring,
         )
     except Exception as e:  # never let the planner stop a gameweek: part 5's options remain
         multi = None
@@ -450,7 +453,7 @@ def plan_transfers(
         f"  Screened {plan.considered:,} legal options over {gws} in "
         f"{time.perf_counter() - started:.0f}s (including simulating {len(ahead)} more gameweeks)."
     )
-    return Advice(plan, players, multi, chip_values, weeks, squad)
+    return Advice(plan, players, multi, chip_values, weeks, squad, last_chance)
 
 
 CHIP_LABELS = {
@@ -521,7 +524,6 @@ class ChipMove:
 def transfer_chip(
     say: Callable[..., None],
     advice: Advice,
-    nxt: NextGameweek,
     positions: Mapping[int, PositionCode],
     limits: Limits,
 ) -> ChipMove | None:
@@ -551,7 +553,8 @@ def transfer_chip(
     gain = sum(w * (a - b) for w, a, b in zip(weights, after, before, strict=True))
     normal = 0.0 if chip == "freehit" else max(advice.plan.best.gain - advice.plan.best.hit, 0.0)
     value, needed = gain - normal, advice.chip_values.get(chip, 0.0)
-    worth = value >= needed
+    # On a chip's last possible week keeping it is worthless: play it unless it actively loses.
+    worth = value >= needed or (chip in advice.last_chance and value >= 0)
     verdict = "PLAY IT" if worth else "keep it"
     say(
         f"  {CHIP_LABELS[chip]} this week ({len(moves)} transfers): {value:+.1f} xPts exactly "
@@ -577,7 +580,8 @@ def decide_team_chip(
     plain = float(score_lineup(sims, lineup, positions, limits).mean())
     boosted = float(score_lineup(sims, lineup, positions, limits, chip).mean())
     needed = advice.chip_values.get(chip, 0.0)
-    worth = boosted - plain >= needed
+    gain = boosted - plain
+    worth = gain >= needed or (chip in advice.last_chance and gain >= 0)
     verdict = "PLAY IT" if worth else "keep it"
     say(
         f"\n{CHIP_LABELS[chip]} this week: {boosted - plain:+.1f} xPts exactly; "

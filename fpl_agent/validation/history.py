@@ -85,6 +85,7 @@ class HistoricalRow(BaseModel):
     total_points: int
     xP: float | None = None  # FPL's own pre-gameweek expected points (archive only)
     value: int  # price in tenths
+    selected: int = 0  # managers owning him at the time (the planner back-test's template squad)
 
     @property
     def position_code(self) -> PositionCode:

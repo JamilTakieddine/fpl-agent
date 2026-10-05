@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from fpl_agent.data.models import Bootstrap, PositionCode
-from fpl_agent.optimize.planner import chip_inputs, pair_moves, plan_transfers
+from fpl_agent.optimize.planner import chip_inputs, current_chips, pair_moves, plan_transfers
 from fpl_agent.optimize.rules import Limits, SquadPlayer, squad_violations
 from fpl_agent.optimize.transfers import Move
 
@@ -211,13 +211,60 @@ def test_chip_inputs_value_keeping_and_use_it_or_lose_it(limits: Limits) -> None
     xps = [{p: float(v) for p, v in BASE.items()} for _ in range(5)]
     squad_ids = list(POS)
     available = [("3xc", 1, 19), ("bboost", 1, 19), ("wildcard", 2, 19), ("freehit", 2, 19)]
-    weeks, values = chip_inputs(available, 6, xps, squad_ids, POS, limits)
+    weeks, values, expiring = chip_inputs(available, 6, xps, squad_ids, POS, limits)
+    assert expiring == set()
     assert weeks["3xc"] == [0, 1, 2, 3, 4]
     assert values["3xc"] == pytest.approx(1.25 * 5)  # the squad's best player (keeper 1) scores 5
     # Bench: 15-man total minus the best XI. Keeper 2 (1), and the three lowest outfielders.
     assert values["bboost"] == pytest.approx(1.25 * (1 + 3 + 2 + 1))
     assert values["wildcard"] == 15.0 and values["freehit"] == 12.0
     # At GW16 the GW19 window ends inside the 5-week horizon: keeping is worth nothing.
-    weeks, values = chip_inputs(available, 16, xps, squad_ids, POS, limits)
+    weeks, values, expiring = chip_inputs(available, 16, xps, squad_ids, POS, limits)
+    assert expiring == {"3xc", "bboost", "wildcard", "freehit"}
     assert values == dict.fromkeys(("3xc", "bboost", "wildcard", "freehit"), 0.0)
     assert weeks["3xc"] == [0, 1, 2, 3]  # GW16-19 only
+
+
+def test_expiring_chips_are_played_even_when_the_plan_is_indifferent(limits: Limits) -> None:
+    """A Free Hit that gains nothing (the squad is already the best) and a Bench Boost about to
+    expire: with must_play the plan still uses both, one per week, rather than losing them."""
+    plan = plan_transfers(
+        squad(),
+        0,
+        1,
+        squad(),
+        [{p: float(v) for p, v in BASE.items()} for _ in range(2)],
+        limits,
+        chips={"freehit": [0, 1], "bboost": [0, 1]},
+        chip_values={"freehit": 0.0, "bboost": 0.0},
+        must_play={"freehit", "bboost"},
+    )
+    assert sorted(c for c in plan.chips if c) == ["bboost", "freehit"]
+
+
+def test_more_expiring_chips_than_weeks_uses_every_week(limits: Limits) -> None:
+    """Three chips expire with one week left: one chip a week, so one is played (not infeasible)."""
+    plan = plan_transfers(
+        squad(),
+        0,
+        1,
+        squad(),
+        [{p: float(v) for p, v in BASE.items()}],
+        limits,
+        chips={"freehit": [0], "bboost": [0], "3xc": [0]},
+        chip_values=dict.fromkeys(("freehit", "bboost", "3xc"), 0.0),
+        must_play={"freehit", "bboost", "3xc"},
+    )
+    assert len([c for c in plan.chips if c]) == 1
+
+
+def test_two_chip_sets_with_the_same_names_keep_the_current_one(limits: Limits) -> None:
+    """Both sets are called "bboost" etc. At GW16 the first set (GW1-19) is the one in play and
+    expiring; the second (GW20-38) must not overwrite its weeks (the bug the 5d back-test found)."""
+    xps = [{p: float(v) for p, v in BASE.items()} for _ in range(5)]  # GW16-20
+    both = [("bboost", 1, 19), ("bboost", 20, 38), ("freehit", 2, 19), ("freehit", 20, 38)]
+    assert current_chips(both, 16) == [("bboost", 1, 19), ("freehit", 2, 19)]
+    assert current_chips(both, 20) == [("bboost", 20, 38), ("freehit", 20, 38)]
+    weeks, values, expiring = chip_inputs(both, 16, xps, list(POS), POS, limits)
+    assert weeks == {"bboost": [0, 1, 2, 3], "freehit": [0, 1, 2, 3]}  # GW16-19, not GW20
+    assert expiring == {"bboost", "freehit"}
