@@ -8,7 +8,8 @@ and then still has to pass every check, against a FRESH read of the team just be
 - the payload holds exactly the current squad (you may have made a transfer on the site since
   the recommendation was computed);
 - the rules engine passes the lineup (formation, bench keeper first, captain among starters);
-- no chip: chips are the Phase 5 planner's decision (D28).
+- the chip: whatever team chip is already active is sent back unchanged (saving `null` would
+  cancel it, as the website's own code shows); a new one only when the planner plays it (5c).
 The payload is logged before sending, the POST is never retried, and the team is read back and
 compared afterwards.
 
@@ -82,9 +83,25 @@ def problems_before_saving(
             "the payload's players aren't exactly the current squad (a transfer since?)"
         )
     problems += lineup_violations(lineup, positions, limits)
-    if payload["chip"] is not None:
-        problems.append("chips are decided by the Phase 5 planner, not sent from here")
+    chip = payload["chip"]
+    if chip is not None and chip != active_team_chip(team):
+        playable = any(c.name == chip and c.status_for_entry == "available" for c in team.chips)
+        if chip not in TEAM_CHIPS or not playable:
+            problems.append(f"chip {chip} isn't available to play this gameweek")
     return problems
+
+
+TEAM_CHIPS = ("bboost", "3xc")  # played through /my-team/
+TRANSFER_CHIPS = ("wildcard", "freehit")  # played through /transfers/ (D37, D39)
+
+
+def active_team_chip(team: MyTeam) -> str | None:
+    """The Bench Boost / Triple Captain already played (or proposed) this gameweek, if any. The
+    FPL website sends it back with every lineup save: saving `chip: null` would CANCEL it."""
+    for c in team.chips:
+        if c.name in TEAM_CHIPS and c.status_for_entry in ("active", "proposed"):
+            return c.name
+    return None
 
 
 def saved_matches(payload: Mapping[str, Any], team: MyTeam) -> bool:
@@ -116,10 +133,13 @@ def submit_lineup(
     now: datetime,
     live: bool,
     log: Callable[[str], None] = print,
+    play_chip: str | None = None,
 ) -> SubmitResult:
-    """Build the payload and, only if `live` and every check passes, save it and read it back."""
-    payload = lineup_payload(lineup)
+    """Build the payload and, only if `live` and every check passes, save it and read it back.
+    The chip sent is `play_chip` (the planner playing Bench Boost / Triple Captain, 5c), else the
+    team chip already active this gameweek, kept as it is."""
     team = client.my_team(entry_id)  # fresh: the squad may have changed since the recommendation
+    payload = lineup_payload(lineup, play_chip or active_team_chip(team))
     problems = problems_before_saving(payload, lineup, team, positions, limits, deadline, now)
     mode = "LIVE" if live else "DRY RUN"
     log(f"{mode} payload for POST /my-team/: {json.dumps(payload)}")
@@ -194,15 +214,20 @@ def problems_before_transferring(
     moves = payload["transfers"]
     if not moves:
         return problems + ["no transfers to make"]
+    chip = payload["chip"]
     free = free_transfers(team)
-    if free is None:
-        problems.append("a wildcard or free hit is active: chip transfers are Phase 5's job")
-    elif not allow_hits and len(moves) > free:
-        problems.append(f"{len(moves)} transfers with {free} free: hits are off (D37)")
-    if len(moves) > MAX_TRANSFERS:
-        problems.append(f"{len(moves)} transfers (max {MAX_TRANSFERS} a week)")
-    if payload["chip"] is not None:
-        problems.append("chips are decided by the Phase 5 planner, not sent from here")
+    if chip is not None:  # a wildcard or free hit (5c): unlimited free transfers this week
+        if chip not in TRANSFER_CHIPS:
+            problems.append(f"{chip} isn't played through transfers")
+        elif not any(c.name == chip and c.status_for_entry == "available" for c in team.chips):
+            problems.append(f"chip {chip} isn't available to play")
+    elif free is None:
+        problems.append("a wildcard or free hit is already active: unlimited transfers")
+    else:
+        if not allow_hits and len(moves) > free:
+            problems.append(f"{len(moves)} transfers with {free} free: hits are off (D37)")
+        if len(moves) > MAX_TRANSFERS:
+            problems.append(f"{len(moves)} transfers (max {MAX_TRANSFERS} a week)")
     owned = {p.element: p for p in team.picks}
     sells = [m["element_out"] for m in moves]
     buys = [m["element_in"] for m in moves]
@@ -252,14 +277,15 @@ def submit_transfers(
     live: bool,
     allow_hits: bool,
     log: Callable[[str], None] = print,
+    chip: str | None = None,
 ) -> SubmitResult:
     """Build the transfers payload and, only if `live` and every check passes, send it and read
-    the squad back."""
+    the squad back. With `chip` (wildcard / free hit, 5c) the transfers are free and unlimited."""
     team = client.my_team(entry_id)  # fresh: the squad or prices may have moved since planning
     sell_price = {p.element: p.selling_price for p in team.picks}
     buy_price = {pid: p.price for pid, p in players.items()}
     owned_moves = [m for m in moves if m.sell in sell_price]
-    payload = transfers_payload(owned_moves, entry_id, event, buy_price, sell_price)
+    payload = transfers_payload(owned_moves, entry_id, event, buy_price, sell_price, chip)
     if len(owned_moves) != len(moves):
         problems = ["a player to sell isn't in the squad any more"]
     else:

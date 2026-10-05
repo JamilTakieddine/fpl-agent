@@ -151,10 +151,14 @@ def test_checks_catch_deadline_squad_change_illegal_lineup_and_chip(
         lineup_payload(illegal), illegal, team, positions, limits, DEADLINE, BEFORE
     )
 
-    chip = problems_before_saving(
+    # An available team chip may be played; a transfer chip or a used one may not.
+    assert not problems_before_saving(
         lineup_payload(lineup, chip="bboost"), lineup, team, positions, limits, DEADLINE, BEFORE
     )
-    assert any("chip" in p for p in chip)
+    wildcard = problems_before_saving(
+        lineup_payload(lineup, chip="wildcard"), lineup, team, positions, limits, DEADLINE, BEFORE
+    )
+    assert any("chip" in p for p in wildcard)
 
 
 # --- sending -------------------------------------------------------------------------------------
@@ -234,3 +238,17 @@ def test_a_failed_save_raises_and_is_not_retried(
             fpl, ENTRY, current(team_json), positions, limits, DEADLINE, BEFORE, True, print
         )
     assert len(posts(http)) == 1
+
+
+def test_an_active_chip_is_kept_by_every_save(
+    positions: dict[int, PositionCode], limits: Limits
+) -> None:
+    """A Bench Boost already played this gameweek goes back in the payload: saving `chip: null`
+    would cancel it (the FPL website does the same)."""
+    team_json = load_fixture("my_team")
+    team_json["chips"][0]["status_for_entry"] = "active"  # bboost
+    fpl, http = client({MY_TEAM: FakeResponse(body=team_json)})
+    result = submit_lineup(
+        fpl, ENTRY, current(team_json), positions, limits, DEADLINE, BEFORE, False, print
+    )
+    assert result.payload["chip"] == "bboost" and result.problems == []
