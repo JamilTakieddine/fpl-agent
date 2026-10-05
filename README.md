@@ -19,10 +19,11 @@ Status:
   GW10–11).
 - **Phase 4 (cloud): complete.** A self-scheduling Cloud Run job saves the lineup before every deadline
   (`deploy/README.md`).
-- **Phase 5 (planner): in progress.** 5a: the agent makes free transfers itself. 5b: a multi-week transfer
-  plan solved exactly with HiGHS, checked by the simulations. 5c: chips (Wildcard, Free Hit, Bench Boost,
-  Triple Captain) planned the same way and played only when the simulations confirm it; first-set chips are
-  scheduled before GW19. Next: the planner back-test (5d).
+- **Phase 5 (planner): complete.** The agent makes free transfers itself, planned over 5 weeks with an exact
+  optimizer (HiGHS) and checked by the simulations, and plays all four chips the same way (first set before
+  GW19). Replaying 2025/26 (`docs/planner_backtest.md`): 2,157 points vs 1,536 for holding the starting squad
+  and 2,025 for one-week transfer logic. It emails "⚠️ ACTION NEEDED" reminders before the few reviews that
+  need you (GW10, GW14, GW19, GW20, GW38).
 
 ## Setup
 ```bash
@@ -49,6 +50,7 @@ python scripts/check_history.py   # verify the rebuilt season is faithful before
 python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
 python scripts/fit_opponent.py    # refit the opponent captain model and AVERAGE scale on league data
 python -m fpl_agent.validation.optimizer  # back-test the optimizer vs the league's real lineups
+python -m fpl_agent.validation.planner_backtest  # replay 2025/26 with the transfer/chip planner (~1 hour)
 python -m fpl_agent.validation --report  # back-test both seasons; writes docs/validation.md
 ```
 

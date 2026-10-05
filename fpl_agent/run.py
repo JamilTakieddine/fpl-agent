@@ -4,7 +4,8 @@ Every run holds the run lock (one token refresher at a time), records this run's
 snapshots, does its mode's work, and ALWAYS finishes by pointing the three schedules at their
 next times, so one failed run can't break the chain:
 - check (24h before): proves the login still works and records snapshots; email only if
-  something needs you, while there's still time to fix it;
+  something needs you, while there's still time to fix it, or a gameweek reminder of a review
+  due (fpl_agent/reminders.py, subject "⚠️ ACTION NEEDED");
 - save (60 min before): makes the planned transfers (free ones only unless FPL_ALLOW_HITS=1,
   D37), then picks and saves the lineup for the new squad (live when FPL_LIVE=1); emails the
   full summary;
@@ -35,6 +36,7 @@ from fpl_agent.data.odds import load_odds
 from fpl_agent.data.odds_store import record_odds
 from fpl_agent.data.snapshots import record_snapshot
 from fpl_agent.notify import Mailer, mailer_from_env
+from fpl_agent.reminders import reminder_for
 from fpl_agent.stores import cloud_config, token_guard, token_store
 from fpl_agent.submit import hits_allowed, live_mode
 
@@ -95,6 +97,11 @@ def gameweek_work(
     note = record(client, snapshots, odds)
     if mode == "check":
         print(f"check: login OK; {note}")
+        upcoming = next_deadline(client.bootstrap(), datetime.now(UTC))
+        reminder = reminder_for(upcoming[0]) if upcoming else None
+        if reminder is not None:  # the few times the agent needs you (D40)
+            mailer.send(reminder.subject, reminder.body)
+            print(f"reminder sent: {reminder.subject}")
         return 0
     out = io.StringIO()
     result = run_gameweek(

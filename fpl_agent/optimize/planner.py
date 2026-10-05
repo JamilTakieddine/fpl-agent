@@ -20,7 +20,7 @@ exactly with the simulations next to part 5's options before anything is made (a
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,11 +94,14 @@ def plan_transfers(
     time_limit_s: float = TIME_LIMIT_S,
     chips: Mapping[str, Sequence[int]] | None = None,
     chip_values: Mapping[str, float] | None = None,
+    must_play: Collection[str] = (),
 ) -> Plan:
     """The best transfer (and chip) plan over len(xps) weeks. `squad` at SELLING prices, `pool`
     at buying prices; xps[t][p] is player p's expected points in week t (0 = the coming week).
     `chips`: chip name -> the weeks it may be played (available and inside its window);
-    `chip_values`: what keeping it beyond the horizon is worth (0 once its window ends inside)."""
+    `chip_values`: what keeping it beyond the horizon is worth (0 once its window ends inside).
+    `must_play`: chips whose window ends inside the horizon. They're played (as many as there are
+    weeks for: one chip a week), never lost to an indifferent or timed-out solve."""
     import highspy
 
     chips = chips or {}
@@ -150,6 +153,13 @@ def plan_transfers(
     fh_cap = {(p, t): h.addBinary() for p in ids for t in fh_weeks}
     for by_week in play.values():
         h.addConstr(h.qsum(by_week.values()) <= 1)  # each chip once
+    expiring = [c for c in must_play if play.get(c)]
+    if expiring:  # use it or lose it, as a rule rather than a zero value (D39)
+        open_weeks = {t for c in expiring for t in play[c]}
+        h.addConstr(
+            h.qsum(v for c in expiring for v in play[c].values())
+            >= min(len(expiring), len(open_weeks))
+        )
     for t in weeks:
         on = [play[c][t] for c in play if t in play[c]]
         if on:
@@ -253,8 +263,10 @@ def plan_transfers(
 
     status = h.getModelStatus()
     optimal = status == highspy.HighsModelStatus.kOptimal
-    if not (optimal or status == highspy.HighsModelStatus.kTimeLimit):
-        raise RuntimeError(f"the transfer plan couldn't be solved: {status}")
+    found = h.getInfo().primal_solution_status == highspy.SolutionStatus.kSolutionStatusFeasible
+    if not (optimal or (status == highspy.HighsModelStatus.kTimeLimit and found)):
+        # A timed-out solve WITHOUT a feasible plan has meaningless values: never use them.
+        raise RuntimeError(f"no transfer plan found: {status}")
     position = {p: info[p].position for p in ids}
     plan_weeks: list[tuple[Move, ...]] = []
     played: list[str | None] = []
@@ -293,6 +305,23 @@ FREE_HIT_VALUE = 12.0  # likewise for a free hit
 GOOD_WEEK = 1.25  # BB / TC only beat keeping them in a week 25% better than a typical one
 
 
+def current_chips(
+    available: Sequence[tuple[str, int, int]], event: int
+) -> list[tuple[str, int, int]]:
+    """One chip per name: the two sets share names ("bboost" GW1-19 and GW20-38), so keyed by name
+    the later set would overwrite the current one's weeks and the current chip would be lost at
+    its deadline (found by the 5d back-test). Keep the copy whose window covers `event`, else the
+    next one to open."""
+    chosen: dict[str, tuple[str, int, int]] = {}
+    for chip in sorted(available, key=lambda c: c[1]):
+        name, first, last = chip
+        if last < event:
+            continue  # its window has passed
+        if name not in chosen:
+            chosen[name] = chip
+    return list(chosen.values())
+
+
 def chip_inputs(
     available: Sequence[tuple[str, int, int]],  # (chip, first gameweek, last gameweek) still usable
     event: int,
@@ -300,13 +329,14 @@ def chip_inputs(
     squad: Sequence[int],
     positions: Mapping[int, PositionCode],
     limits: Limits,
-) -> tuple[dict[str, list[int]], dict[str, float]]:
-    """For the planner: the horizon weeks each chip may be played in, and what keeping it beyond
-    the horizon is worth. Once a chip's window ends inside the horizon, keeping it is worth
-    nothing (use it or lose it: first-set chips die at GW19). Otherwise Triple Captain and Bench
-    Boost are worth a GOOD_WEEK multiple of a typical week for this squad (its best captain; its
-    bench), so they're played in clearly better weeks (doubles); Wildcard and Free Hit start from
-    fixed values."""
+) -> tuple[dict[str, list[int]], dict[str, float], set[str]]:
+    """For the planner: the horizon weeks each chip may be played in, what keeping it beyond the
+    horizon is worth, and the chips whose window ends inside the horizon.
+
+    An expiring chip must be played (use it or lose it: first-set chips die at GW19), and keeping
+    it is worth nothing. Otherwise Triple Captain and Bench Boost are worth a GOOD_WEEK multiple
+    of a typical week for this squad (its best captain; its bench), so they're played in clearly
+    better weeks (doubles); Wildcard and Free Hit start from fixed values."""
     from statistics import median
 
     from fpl_agent.optimize.transfers import quick_value
@@ -314,13 +344,15 @@ def chip_inputs(
     horizon_end = event + len(xps) - 1
     weeks: dict[str, list[int]] = {}
     values: dict[str, float] = {}
-    for name, first, last in available:
+    expiring: set[str] = set()
+    for name, first, last in current_chips(available, event):
         usable = [t for t in range(len(xps)) if first <= event + t <= last]
         if not usable:
             continue
         weeks[name] = usable
         if last <= horizon_end:
             values[name] = 0.0
+            expiring.add(name)
         elif name == "3xc":
             values[name] = GOOD_WEEK * median(max(xp.get(p, 0.0) for p in squad) for xp in xps)
         elif name == "bboost":
@@ -332,4 +364,4 @@ def chip_inputs(
             values[name] = GOOD_WEEK * median(bench)
         else:
             values[name] = WILDCARD_VALUE if name == "wildcard" else FREE_HIT_VALUE
-    return weeks, values
+    return weeks, values, expiring

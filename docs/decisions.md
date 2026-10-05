@@ -1880,6 +1880,77 @@ forfeited at the GW19 deadline. The agent has to decide when to play them, and t
 
 ---
 
+## D40. Phase 5d: a full-season replay of the planner, two chip bugs it caught, and review reminders
+
+*2026-10-05. Approved: replay 2025/26 with the agent's weekly loop against simpler policies; reminder emails with an
+attention-grabbing subject for the times the user is needed.*
+
+**Method** (`fpl_agent/validation/planner_backtest.py`):
+- Every gameweek from GW2 is rebuilt from what was known before its deadline (D24): that week with its closing
+  odds, the following four with the xG-ratings fallback, as live.
+- Four policies start from the same realistic squad, **the most-owned legal 15 at GW1 within £100m**:
+  1. the agent (5b planner + 5c chips + part 5's options, the exact checks deciding);
+  2. the same without chips;
+  3. part 5's one-week logic;
+  4. hold.
+- All use free transfers only, at most 3 a week, the same lineup picker (most expected points: no opponent
+  here), and real selling prices.
+- Every week is scored on **real results** through the rules engine.
+- About 1–2.5 minutes per gameweek. It checkpoints after every gameweek (resumable, and any week can be
+  replayed with `--after=N`), and logs the agent's chip reasoning.
+
+**Results (2025/26, GW2–38, real points):**
+
+| Policy | Points | vs hold |
+|---|---|---|
+| Agent (planner + chips) | **2,157** | **+621 (± 141)** |
+| Agent without chips | 2,064 | +528 |
+| Part 5 one-week logic | 2,025 | +489 (± 126) |
+| Hold | 1,536 | – |
+
+- **The planner beats part 5 by +132 (± 81),** and its transfers alone add +39.
+- **Chips add +93 (± 86),** about 1 s.e.: positive, not yet conclusive on one season.
+- The agent used all 8 chips: Wildcard GW2/22, Triple Captain GW6/26, Bench Boost GW15/36, Free Hit GW18/33.
+- No planner failures.
+
+**Two bugs it caught, both fixed before any live chip decision** (the live first-set deadline is GW19):
+1. **Expiring chips relied on a zero value.** That made the optimizer *indifferent*, and an indifferent or
+   timed-out solve could drop them. Now a chip whose window ends inside the horizon **must** be played (as many
+   as there are weeks for, one chip a week). On its last possible week, the exact check plays it unless it
+   actively loses points. Also, a time-limited solve that found **no** feasible plan now raises instead of
+   returning meaningless values.
+2. **FPL's two chip sets share names** ("bboost" GW1–19 and GW20–38). Keyed by name, the second set overwrote the
+   first's playable weeks, so first-set chips were scheduled for GW20+ and lost at GW19. The first run lost the
+   Free Hit; the first fix attempt also lost the Bench Boost. Found from the logged plans (GW16's plan put Bench
+   Boost in GW20). `current_chips` keeps one chip per name, the one whose window is open (else the next).
+   - Live, FPL currently lists only the current set for the team, so the live agent was very likely unaffected.
+     The fix protects it if both sets are ever listed around GW19–20.
+   - After the fix, all four first-set chips are played before GW19.
+
+**Reminders** (`fpl_agent/reminders.py`).
+- The check run (24 h before a deadline) emails **"⚠️ ACTION NEEDED - FPL agent: …"** at:
+  - GW10: the GW10–11 review during the break (Q9, hits, opponent refit, injury rules);
+  - GW14: the chip run-in check (Q10);
+  - GW19: confirm the first-set chips are used;
+  - GW20: second-half chips and opponents (Q6);
+  - GW38: summer maintenance.
+- Each says what to do, why, roughly how long it takes, and how to start with Claude. The dates follow FPL's real
+  deadlines.
+
+**Caveats.**
+- One season, one starting squad: a single path, and the s.e. comes from weekly differences. The run *before*
+  the fix scored 2,178 with fewer chips used, inside that noise. More chips played doesn't guarantee more points
+  on a given path.
+- No hits, no price-change strategy, and no injury flags in the archive (as in D35).
+- Later weeks use the xG fallback.
+
+**Alternatives.**
+- *Testing against the league's managers only* (D35): just 4 gameweeks of history this season.
+- *A synthetic season*: it would test the model against itself.
+- *No checkpointing*: an hour-long run lost to a closed laptop.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
