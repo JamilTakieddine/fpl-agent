@@ -1756,6 +1756,67 @@ what "Confirm transfers" sends:
 
 ---
 
+## D38. Phase 5b: a multi-week transfer plan, solved exactly (HiGHS), checked by the simulations
+
+*2026-10-05. Approved: an optimizer-based planner (mixed-integer programming with HiGHS) rather than a search
+through the simulations.*
+
+**Context.** Part 5 (D32) picks *this week's* transfers, valued over five weeks, with a fixed 1.5-point rule for
+saving a free transfer. It can't plan a sequence: roll now to make two next week, sell a player before his hard
+run, or buy a player the week his good run starts.
+
+**Decision** (`fpl_agent/optimize/planner.py`):
+- **The model.** For every candidate player and week (the same 5-week horizon and weights 1.0–0.6 as D32), yes/no
+  variables say: in the squad, in the XI, captain, bought, sold.
+- **Constraints** are FPL's rules:
+  - 15 players (2/5/5/3), at most 3 per club;
+  - a legal XI with one captain;
+  - the bank (selling prices for owned players, buying prices otherwise);
+  - free transfers banking +1 a week up to 5;
+  - no hits unless allowed (D37);
+  - at most 3 transfers a week.
+- **The objective:** week-weighted expected points of the XI, plus the captain's bonus, plus 0.1 × the bench
+  (depth for auto-subs), minus 4 per hit, **plus 1.5 per free transfer still banked after the horizon**. That's
+  D32's threshold expressed *inside* the plan: a transfer that would be lost to the cap costs nothing.
+- **Size.** Your squad plus the 40 best and 5 cheapest players per position, about 190 players. Solved with
+  HiGHS (open source, `highspy`) to proven optimality, with a 60-second limit. GW6 took about 15 s.
+- **The simulations have the final say.** Expected points are a linear proxy: they can't see auto-sub chains or
+  your opponent. So the plan's **week-1 transfers are added as a candidate** to part 5's options, every option is
+  scored exactly with the simulations over the horizon, and the D32 thresholds pick the winner. Only week 1 is
+  ever executed; the following weeks are re-planned each week with fresh data.
+- **The plan is reported** week by week, with the free-transfer path. The report says whether its first week won
+  the exact scoring. If the optimizer fails or runs out of time, the run carries on with part 5's options.
+- **Prices are assumed constant** over the horizon, as in most planners.
+
+**First live plan (GW6, 5 free transfers, hits off).**
+- GW6: Kadıoğlu → Hall, Gvardiol → Mukiele, João Pedro → Barry. These are the **same three transfers part 5
+  found**, and they won the exact scoring (+12.8).
+- GW7: Maguire → Thomas, Sangaré → Tavernier. GW8–10: roll.
+- Free transfers 5 → 3 → 2 → 3 → 4 → 5.
+
+**Verified** (`tests/test_planner.py`, synthetic squads):
+- a clear upgrade is bought now;
+- it **waits** for a player whose good run starts next week;
+- it **rolls one now to make two next week**;
+- with hits off there's no transfer without a free one;
+- budget and club limit hold;
+- a marginal upgrade is taken only when the 5-transfer cap would waste the transfer;
+- every planned week's squad passes `rules.squad_violations`;
+- moves pair by position.
+
+**Alternatives.**
+- *Beam search through the simulations*: it fits the H2H objective, but it's slower and only approximately
+  optimal over 5 weeks.
+- *Trusting the optimizer outright*: it can't see auto-subs or the opponent, so the exact check keeps the final
+  decision on the same footing as D32.
+- *All 700 players*: about 4× the variables for players who'd never be picked.
+- *PuLP or OR-Tools on top of HiGHS*: another layer; `highspy`'s own modelling interface is enough.
+
+**Next.** 5c adds chips to the same model: Wildcard/Free Hit as unlimited-transfer weeks, Bench Boost/Triple
+Captain as extra scoring. 5d back-tests the planner.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

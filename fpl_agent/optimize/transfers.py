@@ -19,7 +19,7 @@ above its threshold wins; "roll" (no transfer) is the baseline at zero.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations
 
 from fpl_agent.data.models import PositionCode
@@ -74,6 +74,7 @@ class TransferPlan:
     alternatives: list[Option]  # the next best actual transfers, exactly scored
     free: int
     considered: int  # legal options screened
+    scored: list[Option] = field(default_factory=list)  # every option scored exactly
 
 
 def required_gain(moves: int, free: int, limits: Limits) -> float:
@@ -121,9 +122,11 @@ def recommend_transfers(
     limits: Limits,
     max_transfers: int = MAX_TRANSFERS,
     allow_hits: bool = True,
+    extra: Sequence[tuple[Move, ...]] = (),
 ) -> TransferPlan:
     """Best transfers for `squad` (prices = SELLING prices) over the horizon `weeks` (the next
-    gameweek first). `pool`: every player I could buy, at buying price."""
+    gameweek first). `pool`: every player I could buy, at buying price. `extra`: candidate move
+    sets from elsewhere (the 5b planner's week-1 transfers), always scored exactly if legal."""
     weights = WEEK_WEIGHTS[: len(weeks)]
     xps = [{int(p): float(e) for p, e in zip(w.player, w.expected(), strict=True)} for w in weeks]
     horizon = {
@@ -178,7 +181,8 @@ def recommend_transfers(
 
     screened: list[tuple[float, tuple[Move, ...], tuple[int, ...], int]] = []
     seen: set[frozenset[int]] = set()
-    for moves in move_sets:
+    forced = {frozenset({m.buy for m in e} | (set(ids) - {m.sell for m in e})) for e in extra}
+    for moves in [*extra, *move_sets]:
         if len(moves) > kmax:
             continue
         sold = {m.sell: m.buy for m in moves}
@@ -212,8 +216,11 @@ def recommend_transfers(
             required_gain(len(moves), free, limits),
         )
 
-    scored = [option(moves, members, left) for _, moves, members, left in screened[:SHORTLIST]]
+    shortlist = screened[:SHORTLIST] + [
+        s for s in screened[SHORTLIST:] if frozenset(s[2]) in forced
+    ]
+    scored = [option(moves, members, left) for _, moves, members, left in shortlist]
     scored.sort(key=lambda o: -o.surplus)
     roll = Option((), tuple(ids), bank, 0, tuple(0.0 for _ in weeks), 0.0, 0.0)
     best = scored[0] if scored and scored[0].surplus > 0 else roll
-    return TransferPlan(best, [o for o in scored if o is not best][:3], free, len(screened))
+    return TransferPlan(best, [o for o in scored if o is not best][:3], free, len(screened), scored)
