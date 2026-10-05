@@ -11,19 +11,16 @@ Status:
   ratings, Dixon-Coles from the market's draw price), minutes, attacking and defensive events, bonus, and
   FPL points, validated against 2025/26 and early 2026/27: it beats form-based benchmarks on accuracy
   and ranking, with honest probabilities (`docs/validation.md`).
-- **Phase 3 (optimizer): in progress.** Part 1 done: the FPL rules engine, which reproduces FPL's own
-  auto-subs and official points for every real team-gameweek tested. Part 2 done: a vectorized scorer that
-  gives a lineup's points in all 10,000 simulations in about 1 ms, matching the rules engine exactly.
-  Part 3 done: the H2H opponent (last week's team sheet, a captain spread fitted on the league's real
-  picks, chip chances, and FPL's overall average for "AVERAGE" weeks) scored in the same simulations.
-  Part 4 done: the lineup optimizer (XI, bench order, captain, vice-captain) that maximizes the chance of
-  beating this week's opponent by 3+ points without giving up more than 1 expected point; dry run only.
-  Part 5 done: transfer recommendations over the next 5 gameweeks (budget, club limit, free-transfer and
-  hit thresholds), recommendation only. Part 6 done: saving the lineup, DRY RUN unless `--live`, with
-  checks against a fresh read of the team (deadline, squad, rules) and a read-back after saving.
-  Part 7 done: back-testing the optimizer against the league's real GW2–5 lineups
-  (`docs/optimizer_backtest.md`). There's no evidence yet that it beats a careful manager; the fair test
-  needs GW6+ (injury flags). Next: Phase 4, deploying to the cloud.
+- **Phase 3 (optimizer): complete.** An FPL rules engine that reproduces FPL's own scores; a vectorized
+  scorer (a lineup over 10,000 simulations in about 1 ms); the H2H opponent model; a lineup and captain
+  optimizer that maximizes the chance of beating this week's opponent by 3+; 5-week transfer
+  recommendations; saving the lineup behind dry-run safety checks; and a back-test against the league's
+  real lineups (`docs/optimizer_backtest.md`; no proven edge over careful managers yet, fair rerun at
+  GW10–11).
+- **Phase 4 (cloud): complete.** A self-scheduling Cloud Run job saves the lineup before every deadline
+  (`deploy/README.md`).
+- **Phase 5 (planner): in progress.** 5a: the agent makes free transfers itself. 5b: a multi-week transfer
+  plan solved exactly with HiGHS, checked by the simulations. Next: chips (5c), planner back-test (5d).
 
 ## Setup
 ```bash

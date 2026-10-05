@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TextIO
@@ -42,6 +42,8 @@ from fpl_agent.optimize.opponent import (
     chip_probabilities,
     opponent_points,
 )
+from fpl_agent.optimize.planner import Plan
+from fpl_agent.optimize.planner import plan_transfers as optimize_plan
 from fpl_agent.optimize.rules import (
     Limits,
     Lineup,
@@ -52,6 +54,7 @@ from fpl_agent.optimize.rules import (
 from fpl_agent.optimize.scoring import score_lineup, squad_sims
 from fpl_agent.optimize.transfers import (
     WEEK_WEIGHTS,
+    Move,
     Option,
     TransferPlan,
     recommend_transfers,
@@ -330,11 +333,31 @@ def plan_transfers(
         SquadPlayer(p.element, positions[p.element], team_of[p.element], p.selling_price)
         for p in team.picks
     ]
+    # 5b (D38): the optimizer's multi-week plan; its week-1 transfers join the exact comparison.
+    xps = [{int(p): float(e) for p, e in zip(w.player, w.expected(), strict=True)} for w in weeks]
+    try:
+        multi: Plan | None = optimize_plan(
+            squad, bank, free, list(players.values()), xps, limits, allow_hits=allow_hits
+        )
+    except Exception as e:  # never let the planner stop a gameweek: part 5's options remain
+        multi = None
+        say(f"  Plan: the optimizer failed ({type(e).__name__}: {e}); using the screened options.")
+    extra = (multi.weeks[0],) if multi is not None and multi.weeks[0] else ()
     plan = recommend_transfers(
-        squad, bank, free, list(players.values()), weeks, positions, limits, allow_hits=allow_hits
+        squad,
+        bank,
+        free,
+        list(players.values()),
+        weeks,
+        positions,
+        limits,
+        allow_hits=allow_hits,
+        extra=extra,
     )
     price = {pid: p.price for pid, p in players.items()} | {s.id: s.price for s in squad}
     gws = f"GW{nxt.event}-{nxt.event + len(weeks) - 1}"
+    if multi is not None:
+        report_plan(say, multi, plan, nxt.event, names)
 
     def describe(o: Option) -> str:
         moves = "; ".join(
@@ -375,3 +398,32 @@ def plan_transfers(
         f"{time.perf_counter() - started:.0f}s (including simulating {len(ahead)} more gameweeks)."
     )
     return plan, players
+
+
+def report_plan(
+    say: Callable[..., None], multi: Plan, plan: TransferPlan, event: int, names: Mapping[int, str]
+) -> None:
+    """The optimizer's week-by-week plan, and how its first week fared in the exact scoring."""
+
+    def week(moves: tuple[Move, ...]) -> str:
+        return "; ".join(f"{names[m.sell]} -> {names[m.buy]}" for m in moves) or "roll"
+
+    steps = " | ".join(f"GW{event + t} {week(m)}" for t, m in enumerate(multi.weeks))
+    fts = " -> ".join(str(f) for f in multi.free_transfers)
+    proof = "optimal" if multi.optimal else "best found in the time limit"
+    say(f"  Plan ({proof}, {multi.candidates} candidates, {multi.seconds:.1f}s): {steps}")
+    say(f"      free transfers by week: {fts}")
+    first = set(multi.weeks[0])
+    if not first:
+        say("      The plan rolls this week's transfers.")
+        return
+    scored = next((o for o in plan.scored if set(o.moves) == first), None)
+    if scored is None:
+        say("      Its first-week transfers aren't legal now (checked by the rules engine).")
+    elif set(plan.best.moves) == first:
+        say(f"      Its first-week transfers won the exact scoring ({scored.gain:+.1f} xPts).")
+    else:
+        say(
+            f"      Its first-week transfers scored {scored.gain:+.1f} xPts exactly "
+            f"(needs {scored.required:+.1f}); another option scored higher."
+        )
