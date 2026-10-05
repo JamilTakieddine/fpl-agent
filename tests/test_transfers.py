@@ -177,3 +177,19 @@ def test_flags_in_later_weeks(bootstrap_json: Any) -> None:
     assert as_of(unknown, LATER, NEXT, TODAY).status == "i"  # cautious: out all horizon
     gone = player(bootstrap_json, "u", 0, "Has joined Oxford United on loan until January")
     assert as_of(gone, LATER, NEXT, TODAY).status == "u"
+
+
+def test_with_hits_off_no_free_transfer_means_no_transfer(limits: Limits) -> None:
+    """A +6 upgrade would clear the 4 + 2 bar for a hit, but with hits off (D37) and no free
+    transfer left the planner rolls."""
+    mine = squad()
+    target = SquadPlayer(107, "FWD", 107, 50)
+    week = samples(BASE_POINTS | {107: 9})
+    with_hits = recommend_transfers(
+        mine, 0, 0, [*mine, target], [week], {**POS, 107: "FWD"}, limits
+    )
+    assert with_hits.best.moves and with_hits.best.hit == 4
+    no_hits = recommend_transfers(
+        mine, 0, 0, [*mine, target], [week], {**POS, 107: "FWD"}, limits, allow_hits=False
+    )
+    assert no_hits.best.moves == ()

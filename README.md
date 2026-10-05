@@ -40,6 +40,7 @@ python -m fpl_agent.model         # simulate the next gameweek: your squad's xPt
 python -m fpl_agent.optimize      # DRY RUN: recommended lineup/captain vs this week's H2H opponent,
                                   # the save payload, plus transfer advice over the next 5 gameweeks
 python -m fpl_agent.optimize --live  # ...and SAVE the recommended lineup to FPL (after the checks)
+python -m fpl_agent.optimize --live --transfers  # ...and also MAKE the planned transfers (the cloud's save run does this)
 python -m fpl_agent.data          # live check + records snapshots/odds: deadlines, next 6 GWs, H2H opponent,
                                   # Kalshi odds + expected goals, your team with predicted minutes
 pytest                            # tests (no network; uses tests/fixtures/)

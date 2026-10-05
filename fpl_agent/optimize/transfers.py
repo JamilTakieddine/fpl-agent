@@ -120,6 +120,7 @@ def recommend_transfers(
     positions: Mapping[int, PositionCode],
     limits: Limits,
     max_transfers: int = MAX_TRANSFERS,
+    allow_hits: bool = True,
 ) -> TransferPlan:
     """Best transfers for `squad` (prices = SELLING prices) over the horizon `weeks` (the next
     gameweek first). `pool`: every player I could buy, at buying price."""
@@ -166,7 +167,7 @@ def recommend_transfers(
     singles.sort(key=lambda t: -t[0])
 
     by_id = {p.id: p for p in pool} | {s.id: s for s in squad}  # owned: SELLING price
-    kmax = min(max_transfers, free + 1)
+    kmax = min(max_transfers, free + 1 if allow_hits else free)  # hits off: free transfers only
     move_sets: list[tuple[Move, ...]] = [(m,) for _, m in singles]
     top = [m for _, m in singles[:COMBO_POOL]]
     for k in range(2, kmax + 1):

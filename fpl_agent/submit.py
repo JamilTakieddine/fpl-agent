@@ -10,8 +10,11 @@ and then still has to pass every check, against a FRESH read of the team just be
 - the rules engine passes the lineup (formation, bench keeper first, captain among starters);
 - no chip: chips are the Phase 5 planner's decision (D28).
 The payload is logged before sending, the POST is never retried, and the team is read back and
-compared afterwards. Transfers are recommendation-only until Phase 5; their payload waits on the
-transfers-endpoint capture (spikes/phase3_transfers.md).
+compared afterwards.
+
+Transfers (Phase 5a, D37) follow the same pattern: the payload is exactly what the FPL website
+sends to POST transfers/ (read from its own code), checked against a fresh read of the team and
+of prices, sent once, then read back. Only the cloud's save run makes transfers.
 """
 
 from __future__ import annotations
@@ -24,7 +27,14 @@ from typing import Any
 
 from fpl_agent.data.client import FplClient
 from fpl_agent.data.models import MyTeam, PositionCode
-from fpl_agent.optimize.rules import Limits, Lineup, lineup_violations
+from fpl_agent.optimize.rules import (
+    Limits,
+    Lineup,
+    SquadPlayer,
+    lineup_violations,
+    squad_violations,
+)
+from fpl_agent.optimize.transfers import MAX_TRANSFERS, Move
 
 CUTOFF = timedelta(minutes=1)  # don't start a save this close to the deadline: it could land after
 
@@ -122,4 +132,150 @@ def submit_lineup(
     status = client.save_lineup(entry_id, payload)
     verified = saved_matches(payload, client.my_team(entry_id))
     log(f"SAVED: FPL answered {status}; read back {'matches' if verified else 'DOES NOT match'}.")
+    return SubmitResult(True, payload, [], verified)
+
+
+# --- transfers (Phase 5a, D37) -------------------------------------------------------------------
+
+
+def hits_allowed(env: Mapping[str, str]) -> bool:
+    """-4 hits stay off until the GW10-11 review (D37); FPL_ALLOW_HITS=1 turns them on."""
+    return env.get("FPL_ALLOW_HITS") == "1"
+
+
+def free_transfers(team: MyTeam) -> int | None:
+    """Free transfers left this gameweek: the limit minus those already made (as the FPL site
+    computes it). None while a wildcard or free hit makes transfers unlimited."""
+    if team.transfers.limit is None:
+        return None
+    return max(team.transfers.limit - team.transfers.made, 0)
+
+
+def transfers_payload(
+    moves: Sequence[Move],
+    entry: int,
+    event: int,
+    buy_price: Mapping[int, int],
+    sell_price: Mapping[int, int],
+    chip: str | None = None,
+) -> dict[str, Any]:
+    """FPL's /transfers/ body, as the website builds it: the incoming player's current price
+    (now_cost) and the outgoing player's selling price, both in tenths of a million."""
+    return {
+        "chip": chip,
+        "entry": entry,
+        "event": event,
+        "transfers": [
+            {
+                "element_in": m.buy,
+                "element_out": m.sell,
+                "purchase_price": buy_price[m.buy],
+                "selling_price": sell_price[m.sell],
+            }
+            for m in moves
+        ],
+    }
+
+
+def problems_before_transferring(
+    payload: Mapping[str, Any],
+    team: MyTeam,
+    players: Mapping[int, SquadPlayer],
+    limits: Limits,
+    deadline: datetime,
+    now: datetime,
+    allow_hits: bool,
+) -> list[str]:
+    """Every reason not to send (empty = safe), against a FRESH read of the team. `players`:
+    every player as he'd be bought (position, club, current price)."""
+    problems = []
+    if now >= deadline - CUTOFF:
+        problems.append(f"too close to or past the deadline ({deadline:%a %d %b %H:%M} UTC)")
+    moves = payload["transfers"]
+    if not moves:
+        return problems + ["no transfers to make"]
+    free = free_transfers(team)
+    if free is None:
+        problems.append("a wildcard or free hit is active: chip transfers are Phase 5's job")
+    elif not allow_hits and len(moves) > free:
+        problems.append(f"{len(moves)} transfers with {free} free: hits are off (D37)")
+    if len(moves) > MAX_TRANSFERS:
+        problems.append(f"{len(moves)} transfers (max {MAX_TRANSFERS} a week)")
+    if payload["chip"] is not None:
+        problems.append("chips are decided by the Phase 5 planner, not sent from here")
+    owned = {p.element: p for p in team.picks}
+    sells = [m["element_out"] for m in moves]
+    buys = [m["element_in"] for m in moves]
+    if len(set(sells)) != len(sells) or len(set(buys)) != len(buys):
+        problems.append("a player is sold or bought twice")
+    for m in moves:
+        out, inn = m["element_out"], m["element_in"]
+        if out not in owned:
+            problems.append(f"player {out} isn't in the squad any more")
+        elif owned[out].selling_price != m["selling_price"]:
+            problems.append(f"player {out}'s selling price changed: re-plan")
+        if inn in owned:
+            problems.append(f"player {inn} is already in the squad")
+        elif inn not in players or players[inn].price != m["purchase_price"]:
+            problems.append(f"player {inn}'s price changed or is unknown: re-plan")
+    if problems:
+        return problems
+    sold = dict(zip(sells, buys, strict=True))
+    squad = [
+        players[sold[p]] if p in sold else replace_price(players[p], owned[p].selling_price)
+        for p in owned
+    ]
+    bank = team.transfers.bank + sum(m["selling_price"] - m["purchase_price"] for m in moves)
+    return squad_violations(squad, limits, bank)
+
+
+def replace_price(player: SquadPlayer, price: int) -> SquadPlayer:
+    return SquadPlayer(player.id, player.position, player.team, price)
+
+
+def transfers_applied(payload: Mapping[str, Any], team: MyTeam) -> bool:
+    """Whether the squad read back after transferring has every buy and none of the sales."""
+    squad = {p.element for p in team.picks}
+    moves = payload["transfers"]
+    return all(m["element_in"] in squad and m["element_out"] not in squad for m in moves)
+
+
+def submit_transfers(
+    client: FplClient,
+    entry_id: int,
+    event: int,
+    moves: Sequence[Move],
+    players: Mapping[int, SquadPlayer],
+    limits: Limits,
+    deadline: datetime,
+    now: datetime,
+    live: bool,
+    allow_hits: bool,
+    log: Callable[[str], None] = print,
+) -> SubmitResult:
+    """Build the transfers payload and, only if `live` and every check passes, send it and read
+    the squad back."""
+    team = client.my_team(entry_id)  # fresh: the squad or prices may have moved since planning
+    sell_price = {p.element: p.selling_price for p in team.picks}
+    buy_price = {pid: p.price for pid, p in players.items()}
+    owned_moves = [m for m in moves if m.sell in sell_price]
+    payload = transfers_payload(owned_moves, entry_id, event, buy_price, sell_price)
+    if len(owned_moves) != len(moves):
+        problems = ["a player to sell isn't in the squad any more"]
+    else:
+        problems = problems_before_transferring(
+            payload, team, players, limits, deadline, now, allow_hits
+        )
+    mode = "LIVE" if live else "DRY RUN"
+    log(f"{mode} transfers payload for POST /transfers/: {json.dumps(payload)}")
+    if problems:
+        log("TRANSFERS NOT MADE: " + "; ".join(problems))
+        return SubmitResult(False, payload, problems)
+    if not live:
+        log("DRY RUN: no transfers made. The cloud's save run makes them (FPL_LIVE=1).")
+        return SubmitResult(False, payload, [])
+    status = client.make_transfers(payload)
+    verified = transfers_applied(payload, client.my_team(entry_id))
+    readback = "matches" if verified else "DOES NOT match"
+    log(f"TRANSFERS MADE: FPL answered {status}; read back {readback}.")
     return SubmitResult(True, payload, [], verified)

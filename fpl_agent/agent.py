@@ -1,9 +1,9 @@
-"""One gameweek run: simulate, model the opponent, pick the lineup, save it (if live), advise.
+"""One gameweek run: simulate, model the opponent, transfers, pick the lineup, save (if live).
 
 (D31, D34, D36) Shared by `python -m fpl_agent.optimize` (prints to the terminal) and the cloud
 job `python -m fpl_agent.run` (captures the same report for the email). Writes go only through
 fpl_agent.submit: DRY RUN unless `live`, after its checks against a fresh read of the team.
-Transfers are recommendations only and chips information only: the Phase 5 planner decides.
+Transfers are made only by the cloud's save run (D37); chips are information only until 5c.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TextIO
+from typing import Any, TextIO
 
 import numpy as np
 import requests
@@ -27,7 +27,14 @@ from fpl_agent.data.odds_store import OddsStore
 from fpl_agent.data.opponent import load_opponent
 from fpl_agent.data.snapshots import SnapshotStore
 from fpl_agent.model.pipeline import NextGameweek, simulate_ahead, simulate_next
-from fpl_agent.optimize.lineup import BUFFER, Choice, fpl_order, recommend, summarize
+from fpl_agent.optimize.lineup import (
+    BUFFER,
+    Choice,
+    Recommendation,
+    fpl_order,
+    recommend,
+    summarize,
+)
 from fpl_agent.optimize.opponent import (
     availability,
     average_points,
@@ -43,8 +50,13 @@ from fpl_agent.optimize.rules import (
     lineup_violations,
 )
 from fpl_agent.optimize.scoring import score_lineup, squad_sims
-from fpl_agent.optimize.transfers import WEEK_WEIGHTS, Option, recommend_transfers
-from fpl_agent.submit import SubmitResult, submit_lineup
+from fpl_agent.optimize.transfers import (
+    WEEK_WEIGHTS,
+    Option,
+    TransferPlan,
+    recommend_transfers,
+)
+from fpl_agent.submit import SubmitResult, free_transfers, submit_lineup, submit_transfers
 
 CHIP_NAMES = {"3xc": "Triple Captain", "bboost": "Bench Boost"}
 
@@ -112,11 +124,13 @@ def changes(new: Lineup, old: Lineup, names: Mapping[int, str]) -> list[str]:
 class RunResult:
     event: int
     deadline: datetime
-    lineup: Lineup  # the recommendation
+    lineup: Lineup  # the recommendation (for the squad after any transfers)
     changed: bool  # differs from the team sheet saved on FPL before this run
     p_target: float  # P(win by BUFFER+) with the recommendation
     saved: SubmitResult | None  # None if the save request itself failed
     save_error: str | None
+    transfers: SubmitResult | None = None  # set when this run tried to make transfers
+    transfer_error: str | None = None
 
 
 def run_gameweek(
@@ -128,8 +142,14 @@ def run_gameweek(
     snapshot_store: SnapshotStore | None = None,
     odds_store: OddsStore | None = None,
     transfers: bool = True,
+    make_transfers: bool = False,
+    allow_hits: bool = False,
 ) -> RunResult | None:
-    """The whole gameweek run, reported to `out`. None if the season has no deadline left."""
+    """The whole gameweek run, reported to `out`. None if the season has no deadline left.
+
+    Order (D37): the opponent, then transfers (advice; MADE only when `make_transfers` and
+    `live`, i.e. the cloud's save run), then the lineup for the squad as it now stands, saved
+    through the D34 checks."""
     say = functools.partial(print, file=out)
     started = time.perf_counter()
     nxt = simulate_next(
@@ -144,18 +164,58 @@ def run_gameweek(
     names = {p.id: p.web_name for p in boot.elements}
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
     limits = Limits.from_bootstrap(boot)
-    current = current_lineup(team, positions)
-    mine = squad_sims(nxt.sim.points, current.starters + current.bench)
     label, opponent = the_opponent(client, nxt, settings.h2h_league_id, settings.entry_id, limits)
+    say(f"GW{nxt.event}, deadline {nxt.deadline:%a %d %b %H:%M} UTC, vs {label}")
 
-    searched = time.perf_counter()
-    rec = recommend(mine, positions, limits, opponent)
-    searched = time.perf_counter() - searched
+    def best_for(squad_team: MyTeam) -> tuple[Lineup, Any, Recommendation]:
+        cur = current_lineup(squad_team, positions)
+        sims = squad_sims(nxt.sim.points, cur.starters + cur.bench)
+        return cur, sims, recommend(sims, positions, limits, opponent)
+
+    current, mine, rec = best_for(team)
+    transfer_result, transfer_error = None, None
+    if transfers:
+        plan, players = plan_transfers(
+            out,
+            client,
+            nxt,
+            team,
+            positions,
+            limits,
+            opponent,
+            rec.best.p_target,
+            allow_hits=allow_hits,
+            making=make_transfers and live,
+        )
+        if make_transfers and plan is not None and plan.best.moves:
+            say()
+            try:
+                transfer_result = submit_transfers(
+                    client,
+                    settings.entry_id,
+                    nxt.event,
+                    plan.best.moves,
+                    players,
+                    limits,
+                    nxt.deadline,
+                    datetime.now(UTC),
+                    live,
+                    allow_hits,
+                    log=say,
+                )
+            except requests.RequestException as e:  # never retried: it could apply twice
+                transfer_error = f"{type(e).__name__}: {e}"
+                say(
+                    f"TRANSFERS FAILED ({transfer_error}). Not retried; check the team on the site."
+                )
+            if transfer_result is not None and transfer_result.sent:
+                team = client.my_team(settings.entry_id)  # the squad as it now stands
+                current, mine, rec = best_for(team)
+
     best = rec.best.lineup
     assert lineup_violations(best, positions, limits) == []  # the rules engine has the last word
     xp = dict(zip(mine.ids, mine.points.mean(axis=1), strict=True))
 
-    say(f"GW{nxt.event}, deadline {nxt.deadline:%a %d %b %H:%M} UTC, vs {label}")
     say("\nRecommended lineup")
     for p in best.starters:
         role = " (C)" if p == best.captain else " (V)" if p == best.vice_captain else ""
@@ -193,7 +253,7 @@ def run_gameweek(
             )
     say(
         f"\nSearched {rec.candidates:,} lineups within the points guard "
-        f"({rec.xis_scored} of {rec.xis_total} XIs) in {searched:.1f}s."
+        f"({rec.xis_scored} of {rec.xis_total} XIs)."
     )
 
     say()
@@ -214,8 +274,6 @@ def run_gameweek(
         save_error = f"{type(e).__name__}: {e}"
         say(f"SAVE FAILED ({save_error}). Not retried; check the team on the site.")
 
-    if transfers:
-        print_transfers(out, client, nxt, team, positions, limits, opponent, rec.best.p_target)
     say(f"\n{time.perf_counter() - started:.0f}s in total.")
     return RunResult(
         event=nxt.event,
@@ -225,6 +283,8 @@ def run_gameweek(
         p_target=rec.best.p_target,
         saved=saved,
         save_error=save_error,
+        transfers=transfer_result,
+        transfer_error=transfer_error,
     )
 
 
@@ -232,7 +292,7 @@ def money(tenths: int) -> str:
     return f"£{tenths / 10:.1f}m"
 
 
-def print_transfers(
+def plan_transfers(
     out: TextIO,
     client: FplClient,
     nxt: NextGameweek,
@@ -241,19 +301,27 @@ def print_transfers(
     limits: Limits,
     opponent: NDArray[np.int64],
     p_target_now: float,
-) -> None:
-    """Transfer advice over the next five gameweeks (D32). Recommendation only."""
+    *,
+    allow_hits: bool,
+    making: bool,
+) -> tuple[TransferPlan | None, dict[int, SquadPlayer]]:
+    """Transfer plan over the next five gameweeks (D32), reported to `out`. Returns the plan
+    (None when transfers are unlimited this week) and every buyable player at his current price."""
     say = functools.partial(print, file=out)
     boot = nxt.bootstrap
     names = {p.id: p.web_name for p in boot.elements}
-    free, bank = team.transfers.limit, team.transfers.bank
-    say(
-        "\nTransfers (RECOMMENDATION ONLY: nothing is sent to FPL; "
-        f"{free} free, bank {money(bank)})"
-    )
+    free, bank = free_transfers(team), team.transfers.bank
+    players = {
+        p.id: SquadPlayer(p.id, positions[p.id], p.team, p.now_cost)
+        for p in boot.elements
+        if p.status not in GONE
+    }
+    how = "made automatically" if making else "RECOMMENDATION ONLY: nothing is sent to FPL"
+    hits = "hits allowed" if allow_hits else "free transfers only"
+    say(f"\nTransfers ({how}; {free} free, {hits}, bank {money(bank)})")
     if free is None:
         say("  Unlimited transfers this week (wildcard / free hit active): left to Phase 5.")
-        return
+        return None, players
     started = time.perf_counter()
     ahead = simulate_ahead(client, nxt, len(WEEK_WEIGHTS), datetime.now(UTC).date())
     weeks = [nxt.sim.points, *ahead.values()]
@@ -262,13 +330,10 @@ def print_transfers(
         SquadPlayer(p.element, positions[p.element], team_of[p.element], p.selling_price)
         for p in team.picks
     ]
-    pool = [
-        SquadPlayer(p.id, positions[p.id], p.team, p.now_cost)
-        for p in boot.elements
-        if p.status not in GONE
-    ]
-    plan = recommend_transfers(squad, bank, free, pool, weeks, positions, limits)
-    price = {p.id: p.now_cost for p in boot.elements} | {s.id: s.price for s in squad}
+    plan = recommend_transfers(
+        squad, bank, free, list(players.values()), weeks, positions, limits, allow_hits=allow_hits
+    )
+    price = {pid: p.price for pid, p in players.items()} | {s.id: s.price for s in squad}
     gws = f"GW{nxt.event}-{nxt.event + len(weeks) - 1}"
 
     def describe(o: Option) -> str:
@@ -309,3 +374,4 @@ def print_transfers(
         f"  Screened {plan.considered:,} legal options over {gws} in "
         f"{time.perf_counter() - started:.0f}s (including simulating {len(ahead)} more gameweeks)."
     )
+    return plan, players
