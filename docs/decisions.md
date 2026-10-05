@@ -1817,6 +1817,69 @@ Captain as extra scoring. 5d back-tests the planner.
 
 ---
 
+## D39. Phase 5c: chips in the planner, played only when the simulations confirm it
+
+*2026-10-05.*
+
+**Context.** All four first-set chips (Wildcard, Free Hit, Bench Boost, Triple Captain) are unused, and they're
+forfeited at the GW19 deadline. The agent has to decide when to play them, and then play them.
+
+**Decisions.**
+- **Chips in the optimizer model** (`planner.py`):
+  - a yes/no "play chip c in week t" per chip and week inside its window; each chip once; one chip a week;
+  - **Triple Captain:** the captain's points count once more;
+  - **Bench Boost:** the bench counts in full instead of ×0.1;
+  - **Wildcard:** no transfer limit, free transfers neither used nor gained that week (FPL keeps them);
+  - **Free Hit:** a separate one-week squad (2/5/5/3, ≤3 per club, a legal XI, within the squad's value plus the
+    bank) while the regular squad is frozen; free transfers kept.
+- **"Use it or lose it" through a keep-value** (`chip_inputs`). Playing a chip gives up what keeping it beyond the
+  horizon is worth:
+  - **0 once the chip's window ends inside the horizon**, so first-set chips must be scheduled by GW19;
+  - otherwise **Triple Captain = 1.25 × a typical week's best captain** for this squad, and **Bench Boost = 1.25 ×
+    a typical week's bench** (both medians over the horizon). So they're played in clearly better weeks,
+    typically doubles;
+  - Wildcard and Free Hit start from fixed values, **15** and **12** points (Q10).
+- **The simulations have the final say, as with transfers.** A chip is played only if the plan puts it in *this*
+  week **and** the exact simulations confirm it's worth more than keeping it:
+  - Wildcard: the exact 5-week gain of the new squad, minus the best normal transfers' gain;
+  - Free Hit: the exact one-week gain;
+  - Bench Boost / Triple Captain: the exact extra points on the lineup being saved.
+- **Playing a chip** (only in the cloud's save run, like transfers):
+  - Wildcard / Free Hit go through `POST transfers/` with `chip` set, exactly as the website does. In that mode
+    the free-transfer and 3-a-week limits don't apply; the squad rules and price checks do.
+  - Bench Boost / Triple Captain go through the lineup save's `chip`.
+- **A live-system fix found along the way.** Every lineup save now **keeps the team chip already active** that
+  week. The website's own code shows that saving `chip: null` cancels it. Before this, the final run's re-save
+  could have cancelled a Bench Boost or Triple Captain played earlier, by the agent or by the user.
+- **The free-transfer path is computed from the plan's decisions with `rules.next_free_transfers`,** not read from
+  the solver. A time-limited solve only bounds those values.
+
+**First live plan (GW6).**
+- The planner (time-limited at 60 s, since chips make the model about 3× larger) wanted a **GW6 Wildcard** of
+  10–11 transfers.
+- The exact check rated it **+10.4 points over the best normal transfers, against a keep-value of 15: keep it.**
+  The agent makes the 3 normal free transfers instead.
+- Keep-values for the squad today: Bench Boost 12.5, Triple Captain 6.6, Wildcard 15, Free Hit 12.
+- A save run now takes about 105 s.
+
+**Verified.**
+- Tests: Triple Captain goes to the captain's big week, and is kept when keeping is worth more; Bench Boost goes
+  to the strongest bench week; a chip whose window ends inside the horizon is used; a Wildcard makes many
+  upgrades and keeps the free transfers; a Free Hit covers a blank week, leaving the squad alone; the keep-values
+  and their GW19 cut-off.
+- Submission tests: an active chip survives every save; an available team chip may be played and a transfer chip
+  may not; a Wildcard lifts the transfer limits but not the squad rules.
+- The email names a chip played.
+
+**Alternatives.**
+- *Fixed chip rules* ("Bench Boost in the first double gameweek"): they ignore your squad and the fixtures.
+- *Trusting the optimizer's chip choice outright*: its average-points model is the very thing the exact check
+  protects against, as GW6's Wildcard shows.
+- *No keep-value*: it would play every chip in the first decent week.
+- *Leaving chip saves to the user*: the goal is no manual steps.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1961,3 +2024,11 @@ Recommendation:
 - *Humility test (D35):* a minimum expected gain before switching (about 1–1.5 points) removed most of GW2–5's
   loss, but no threshold beat the managers. Decide at GW10–11, on fair weeks, whether the autonomous agent should
   only change the saved lineup when the gain clears such a threshold.
+
+**Q10. Are the chips' keep-values right?** *(D39, 2026-10-05.)* Bench Boost and Triple Captain are 1.25 × a typical
+week for the squad; Wildcard is 15 and Free Hit 12, as starting points. Too low, and the agent plays chips early on
+ordinary weeks. Too high, and it saves them until GW15–19, when keeping them is worth nothing and they're used
+anyway.
+Recommendation: watch the weekly "keep it / play it" lines in the summary email. At about GW12, compare the
+Wildcard and Free Hit verdicts with what the simulations say they'd have gained, and adjust before the GW15–19
+run-in, when the first set must be used.

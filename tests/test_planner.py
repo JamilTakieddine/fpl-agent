@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from fpl_agent.data.models import Bootstrap, PositionCode
-from fpl_agent.optimize.planner import pair_moves, plan_transfers
+from fpl_agent.optimize.planner import chip_inputs, pair_moves, plan_transfers
 from fpl_agent.optimize.rules import Limits, SquadPlayer, squad_violations
 from fpl_agent.optimize.transfers import Move
 
@@ -133,3 +133,91 @@ def test_every_planned_week_is_a_legal_squad(limits: Limits) -> None:
 def test_moves_pair_by_position() -> None:
     position: dict[int, PositionCode] = {1: "DEF", 2: "MID", 3: "MID", 4: "DEF"}
     assert pair_moves([1, 2], [3, 4], position) == (Move(1, 4), Move(2, 3))
+
+
+# --- chips (5c) ----------------------------------------------------------------------------------
+
+UPGRADES: tuple[PositionCode, ...] = ("DEF", "DEF", "MID", "FWD", "FWD")
+WHOLE_SQUAD: tuple[PositionCode, ...] = ("GKP",) * 2 + ("DEF",) * 5 + ("MID",) * 5 + ("FWD",) * 3
+
+
+def chip_plan(
+    limits: Limits,
+    week_xp: list[dict[int, float]],
+    chips: dict[str, list[int]],
+    values: dict[str, float],
+    targets: Targets | None = None,
+    free: int = 1,
+) -> Any:
+    targets = targets or {}
+    mine = squad()
+    pool = [
+        *mine,
+        *(SquadPlayer(i, pos, team, price) for i, (pos, team, price, _) in targets.items()),
+    ]
+    xps = [
+        {**{p: float(v) for p, v in BASE.items()}, **wx, **{i: t[3][w] for i, t in targets.items()}}
+        for w, wx in enumerate(week_xp)
+    ]
+    return plan_transfers(mine, 0, free, pool, xps, limits, chips=chips, chip_values=values), mine
+
+
+def test_triple_captain_goes_where_the_captain_hauls(limits: Limits) -> None:
+    weeks = [{}, {14: 20.0}, {}]  # forward 14 expects 20 in week 1 (a double gameweek, say)
+    played = chip_plan(limits, weeks, {"3xc": [0, 1, 2]}, {"3xc": 8.0})[0].chips
+    assert played == (None, "3xc", None)
+    # Worth more kept for later than the +20 x 0.9 here: not played.
+    assert chip_plan(limits, weeks, {"3xc": [0, 1, 2]}, {"3xc": 30.0})[0].chips == (None,) * 3
+
+
+def test_bench_boost_goes_where_the_bench_is_strongest(limits: Limits) -> None:
+    strong_bench = {2: 6.0, 7: 6.0, 12: 6.0, 15: 6.0}  # the four bench players, all at 6
+    weeks = [{}, {}, {**strong_bench, 1: 9.0, 3: 9.0, 8: 9.0, 14: 9.0}]
+    plan, _ = chip_plan(limits, weeks, {"bboost": [0, 1, 2]}, {"bboost": 5.0})
+    assert plan.chips[2] == "bboost"
+
+
+def test_a_chip_whose_window_ends_inside_the_horizon_is_used(limits: Limits) -> None:
+    """Use it or lose it: kept beyond the window it's worth nothing, so it goes in the best week."""
+    weeks = [{14: 6.0}, {14: 7.0}, {14: 5.0}]
+    plan, _ = chip_plan(limits, weeks, {"3xc": [0, 1, 2]}, {"3xc": 0.0})
+    assert plan.chips == (None, "3xc", None)
+
+
+def test_a_wildcard_for_many_upgrades_keeps_the_free_transfers(limits: Limits) -> None:
+    targets: Targets = {
+        200 + i: (pos, 200 + i, 50, [8.0, 8.0, 8.0]) for i, pos in enumerate(UPGRADES)
+    }
+    plan, _ = chip_plan(limits, [{}, {}, {}], {"wildcard": [0, 1, 2]}, {"wildcard": 5.0}, targets)
+    assert plan.chips[0] == "wildcard" and len(plan.weeks[0]) >= 4
+    assert plan.free_transfers[1] == 1  # kept, not used up
+
+
+def test_a_free_hit_for_a_blank_week_leaves_the_squad_alone(limits: Limits) -> None:
+    blank = dict.fromkeys(POS, 0.0)  # the whole squad blanks in week 1
+    targets: Targets = {
+        300 + i: (pos, 300 + i, 50, [0.0, 6.0, 0.0]) for i, pos in enumerate(WHOLE_SQUAD)
+    }
+    plan, mine = chip_plan(
+        limits, [{}, blank, {}], {"freehit": [0, 1, 2]}, {"freehit": 5.0}, targets
+    )
+    assert plan.chips == (None, "freehit", None)
+    assert plan.weeks == ((), (), ())  # the regular squad isn't touched
+    fh = plan.free_hit[1]
+    assert fh is not None and len(fh) == 15 and all(p >= 300 for p in fh)
+
+
+def test_chip_inputs_value_keeping_and_use_it_or_lose_it(limits: Limits) -> None:
+    xps = [{p: float(v) for p, v in BASE.items()} for _ in range(5)]
+    squad_ids = list(POS)
+    available = [("3xc", 1, 19), ("bboost", 1, 19), ("wildcard", 2, 19), ("freehit", 2, 19)]
+    weeks, values = chip_inputs(available, 6, xps, squad_ids, POS, limits)
+    assert weeks["3xc"] == [0, 1, 2, 3, 4]
+    assert values["3xc"] == pytest.approx(1.25 * 5)  # the squad's best player (keeper 1) scores 5
+    # Bench: 15-man total minus the best XI. Keeper 2 (1), and the three lowest outfielders.
+    assert values["bboost"] == pytest.approx(1.25 * (1 + 3 + 2 + 1))
+    assert values["wildcard"] == 15.0 and values["freehit"] == 12.0
+    # At GW16 the GW19 window ends inside the 5-week horizon: keeping is worth nothing.
+    weeks, values = chip_inputs(available, 16, xps, squad_ids, POS, limits)
+    assert values == dict.fromkeys(("3xc", "bboost", "wildcard", "freehit"), 0.0)
+    assert weeks["3xc"] == [0, 1, 2, 3]  # GW16-19 only

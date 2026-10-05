@@ -227,3 +227,28 @@ def test_the_email_says_what_was_done() -> None:
     failed = RunResult(7, T0, lineup, True, 0.6, saved, None, blocked, None)
     subject = email_subject("save", failed, live=True)
     assert subject is not None and "TRANSFERS FAILED" in subject
+
+
+def test_the_email_names_a_chip_played() -> None:
+    lineup = Lineup((1,), (2,), 1, 1)
+    saved = SubmitResult(True, {}, [], True)
+    bb = RunResult(7, T0, lineup, True, 0.7, saved, None, None, None, "bboost")
+    assert email_subject("save", bb, live=True) == (
+        "FPL GW7: Bench Boost played, lineup saved (P(win by 3+) 70%)"
+    )
+
+
+def test_a_wildcard_allows_unlimited_free_transfers(
+    players: dict[int, SquadPlayer], limits: Limits
+) -> None:
+    """Four transfers with one free and hits off would be refused, unless they're a wildcard."""
+    t = team(limit=1, made=0)
+    moves = [GOOD, Move(113, 11), Move(304, 5), Move(418, 4)]
+    payload = payload_for(moves, t, players)
+    assert any("hits are off" in p for p in check([], t, players, limits, payload=payload))
+    payload["chip"] = "wildcard"
+    problems = check([], t, players, limits, payload=payload)
+    # The squad rules still apply (these buys break the club limit and budget), but not the
+    # free-transfer and 3-a-week limits.
+    assert not any("hits are off" in p or "transfers (max" in p for p in problems)
+    assert any("from team 1" in p for p in problems)

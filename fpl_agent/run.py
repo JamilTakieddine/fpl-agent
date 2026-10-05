@@ -23,7 +23,7 @@ import time
 import traceback
 from datetime import UTC, datetime
 
-from fpl_agent.agent import RunResult, run_gameweek
+from fpl_agent.agent import CHIP_LABELS, RunResult, run_gameweek
 from fpl_agent.auth import AuthError, RateLimitedError, TokenManager
 from fpl_agent.cloud.schedule import MODES, CloudScheduler, repoint
 from fpl_agent.cloud.storage import BucketOddsStore, BucketSnapshotStore, GcsBucket, LockHeld
@@ -76,7 +76,8 @@ def email_subject(mode: str, result: RunResult, live: bool) -> str | None:
     else:
         made = len(t.payload["transfers"]) if t and t.sent else 0
         moves = f"{made} transfer{'s' if made != 1 else ''} made, " if made else ""
-        state = f"{moves}lineup {'saved' if live else 'dry run'}"
+        chip = f"{CHIP_LABELS[result.chip]} played, " if result.chip and live else ""
+        state = f"{chip}{moves}lineup {'saved' if live else 'dry run'}"
     extra = " - updated with the latest news" if resaved else ""
     return f"FPL GW{result.event}: {state} (P(win by 3+) {result.p_target:.0%}){extra}"
 

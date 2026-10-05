@@ -20,7 +20,9 @@ Status:
 - **Phase 4 (cloud): complete.** A self-scheduling Cloud Run job saves the lineup before every deadline
   (`deploy/README.md`).
 - **Phase 5 (planner): in progress.** 5a: the agent makes free transfers itself. 5b: a multi-week transfer
-  plan solved exactly with HiGHS, checked by the simulations. Next: chips (5c), planner back-test (5d).
+  plan solved exactly with HiGHS, checked by the simulations. 5c: chips (Wildcard, Free Hit, Bench Boost,
+  Triple Captain) planned the same way and played only when the simulations confirm it; first-set chips are
+  scheduled before GW19. Next: the planner back-test (5d).
 
 ## Setup
 ```bash

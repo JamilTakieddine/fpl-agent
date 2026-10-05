@@ -112,6 +112,17 @@ def quick_value(
     return sum(xi) + max(xi, default=0.0)
 
 
+def squad_values(
+    members: Sequence[int],
+    weeks: Sequence[PointsSamples],
+    positions: Mapping[int, PositionCode],
+    limits: Limits,
+) -> tuple[float, ...]:
+    """A squad's exact value in each week: its best lineup's expected points (auto-subs, bench and
+    captain included), from the simulations."""
+    return tuple(best_expected(squad_sims(w, members), positions, limits) for w in weeks)
+
+
 def recommend_transfers(
     squad: Sequence[SquadPlayer],
     bank: int,
@@ -200,7 +211,7 @@ def recommend_transfers(
 
     # Exact: the lineup search in every horizon week (auto-subs, bench and captain included).
     def exact(members: tuple[int, ...]) -> tuple[float, ...]:
-        return tuple(best_expected(squad_sims(w, members), positions, limits) for w in weeks)
+        return squad_values(members, weeks, positions, limits)
 
     base = exact(tuple(ids))
 
