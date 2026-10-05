@@ -5,7 +5,8 @@ snapshots, does its mode's work, and ALWAYS finishes by pointing the three sched
 next times, so one failed run can't break the chain:
 - check (24h before): proves the login still works and records snapshots; email only if
   something needs you, while there's still time to fix it;
-- save (60 min before): runs the gameweek and saves the lineup (live when FPL_LIVE=1); emails the
+- save (60 min before): makes the planned transfers (free ones only unless FPL_ALLOW_HITS=1,
+  D37), then picks and saves the lineup for the new squad (live when FPL_LIVE=1); emails the
   full summary;
 - final (15 min before): runs again with the latest news, saves only if the pick changed; emails
   only then, or on a failure.
@@ -35,7 +36,7 @@ from fpl_agent.data.odds_store import record_odds
 from fpl_agent.data.snapshots import record_snapshot
 from fpl_agent.notify import Mailer, mailer_from_env
 from fpl_agent.stores import cloud_config, token_guard, token_store
-from fpl_agent.submit import live_mode
+from fpl_agent.submit import hits_allowed, live_mode
 
 REGION_ENV = "FPL_REGION"
 LOCK_ATTEMPTS = 6  # about 3 minutes: a local command finishing, then this run goes ahead
@@ -59,14 +60,25 @@ def record(client: FplClient, snapshots: BucketSnapshotStore, odds: BucketOddsSt
 
 def email_subject(mode: str, result: RunResult, live: bool) -> str | None:
     """The summary email's subject, or None when this run shouldn't email: the save run always
-    reports; the final run only when it re-saved a changed lineup; any failed save reports."""
-    failed = bool(result.save_error or (result.saved and result.saved.problems))
+    reports; the final run only when it re-saved a changed lineup; any failure reports."""
+    t = result.transfers
+    transfers_failed = bool(
+        result.transfer_error or (t and t.problems) or (t and t.sent and not t.verified)
+    )
+    failed = bool(result.save_error or (result.saved and result.saved.problems)) or transfers_failed
     resaved = mode == "final" and result.changed and bool(result.saved and result.saved.sent)
     if not (mode == "save" or failed or resaved):
         return None
-    state = "SAVE FAILED" if failed else "saved" if live else "dry run"
+    if transfers_failed:
+        state = "TRANSFERS FAILED"
+    elif failed:
+        state = "lineup SAVE FAILED"
+    else:
+        made = len(t.payload["transfers"]) if t and t.sent else 0
+        moves = f"{made} transfer{'s' if made != 1 else ''} made, " if made else ""
+        state = f"{moves}lineup {'saved' if live else 'dry run'}"
     extra = " - updated with the latest news" if resaved else ""
-    return f"FPL GW{result.event}: lineup {state} (P(win by 3+) {result.p_target:.0%}){extra}"
+    return f"FPL GW{result.event}: {state} (P(win by 3+) {result.p_target:.0%}){extra}"
 
 
 def gameweek_work(
@@ -92,6 +104,8 @@ def gameweek_work(
         snapshot_store=snapshots,
         odds_store=odds,
         transfers=mode == "save",
+        make_transfers=mode == "save",  # transfers can't be undone: once, in the save run (D37)
+        allow_hits=hits_allowed(os.environ),
     )
     print(out.getvalue())
     if result is None:

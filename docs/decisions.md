@@ -1696,6 +1696,66 @@ writes the lineup itself.*
 
 ---
 
+## D37. Phase 5a: the agent makes transfers itself (free transfers only, once per gameweek)
+
+*2026-10-05. Approved: 5a first; free transfers only until the GW10–11 review; learn the transfers request from
+FPL's own website code; optimizer-based planner later (5b).*
+
+**Learning the request (answers Q8 without a capture).** The FPL website's public JavaScript bundle shows exactly
+what "Confirm transfers" sends:
+- `POST transfers/` with `{chip, entry, event, transfers: [{element_in, element_out, purchase_price,
+  selling_price}]}`.
+- `purchase_price` is the incoming player's `now_cost`. `selling_price` is the outgoing player's selling price
+  from `/my-team/`. `event` is the upcoming gameweek. `chip` is `wildcard`/`freehit` when played, else null.
+- It goes through the same helper and headers as the `my-team/` save proven in D34.
+- Wildcard and Free Hit are activated the same way with an empty transfer list. Bench Boost and Triple Captain go
+  through `my-team/` (5c).
+- The site's error codes include `transfer_element_in_price_mismatch` / `..._out_...` (prices moved) and
+  `transfer_cap_exceeded`.
+- **Probe, run by the user on 2026-10-05:** an empty transfer list in exactly this shape got **200** with an empty
+  body. The squad was unchanged, with 0 transfers made and 5 still free. So the endpoint, the auth and the payload
+  shape are accepted, and an empty list is a no-op.
+
+**Decisions** (`fpl_agent/submit.py`, `fpl_agent/agent.py`, `FplClient.make_transfers`):
+- **Only the cloud's save run (60 min before the deadline) makes transfers.** They can't be undone, so they happen
+  once, at a fixed time. The final run never transfers. Locally, it takes an explicit `--live --transfers`.
+- **Order of a save run:** opponent → transfer plan (D32) → **make the transfers** → re-read the squad → pick and
+  save the lineup *for the new squad*. If the transfers fail or are blocked, the run carries on and saves the best
+  lineup for the current squad. The email's subject says what happened ("2 transfers made, lineup saved" or
+  "TRANSFERS FAILED").
+- **Checks against a fresh read of the team, just before sending.** Any failure means nothing is sent, and the
+  reasons are in the email.
+  - before the deadline (1-minute margin);
+  - every sale still owned, every buy not owned, nobody twice;
+  - **prices unchanged since planning** (purchase and selling). If they changed, it doesn't send and re-plans next
+    time;
+  - the resulting squad is legal (budget from selling prices, 3 per club, shape);
+  - at most 3 transfers a week;
+  - no chip;
+  - **free transfers only**: no −4 hits until the GW10–11 review (`FPL_ALLOW_HITS=1` turns them on).
+- **Free transfers left = `limit − made`,** as the FPL site computes it. Part 5 had used `limit`, which would have
+  overcounted after a manual transfer earlier in the week. The planner also takes `allow_hits` and never plans a
+  hit when they're off.
+- **One POST, never retried, then a read-back.** Every buy must be in the squad and every sale gone, or the email
+  flags it.
+
+**Verified.**
+- Tests on fakes cover: the payload shape, `limit − made`, each check (deadline, hits off, ownership, changed
+  prices, budget, club limit, max 3), dry run vs live, a single POST with the website's headers, read-back,
+  failure without retry, the email subject, and the planner rolling with hits off.
+- Live dry run (`--transfers`, no `--live`) on the real GW6 team: the plan and payload passed every check, and
+  nothing was sent.
+
+**Alternatives.**
+- *Transfers in every run*: a second run could act on a half-finished state.
+- *Retrying a failed transfer*: could apply twice.
+- *Sending without re-checking prices*: FPL rejects mismatches anyway, but checking first gives a clear reason in
+  the email.
+- *A browser capture first*: the website's own code already shows the exact request.
+- *Allowing hits from day one*: the model's lineup edge isn't proven yet (D35/Q9).
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -1821,7 +1881,7 @@ Two changes, for the user to decide (his case needs **both**):
   going straight back into the team.
 - Recommendation: do both now, and check the second with the snapshot data at GW11 (with the D13 re-measurement).
 
-**Q8. What exactly does the transfers endpoint expect?** *(D34, 2026-09-30.)* Expected, unverified:
+**Q8. What exactly does the transfers endpoint expect?** *(D34, 2026-09-30.)* *Answered in D37, from the FPL website's own code.* Expected, unverified:
 `POST /api/transfers/` with `{"chip", "entry", "event", "transfers": [{"element_in", "element_out", "purchase_price",
 "selling_price"}]}`, with Wildcard and Free Hit set via `chip`. Does the site send a check request before the
 confirm?
