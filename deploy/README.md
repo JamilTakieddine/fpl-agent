@@ -25,8 +25,17 @@ After every run the job points the three Cloud Scheduler jobs at the next deadli
    `.env`, then run `python -m fpl_agent.cloud.upload_token`. From now on **every** command,
    local ones included, uses that single token. The local token file is retired, because two
    copies would end in a revoked login.
-6. Set the real schedule with a first run:
-   `gcloud run jobs execute fpl-agent --region us-east1 --args=--mode,check --wait`.
+6. Prove the real path and set the real schedule: `./deploy/verify.sh`. Cloud Scheduler starts a
+   `check` run with its own service account, and the script fails loudly unless that run succeeds.
+   (`deploy.sh` does this itself once a login is uploaded.) Don't test with
+   `gcloud run jobs execute`: it runs as you, the project owner, and proves nothing about the
+   scheduler's permissions. That gap is how GW6 was missed (D41).
+
+## Alerts (D41)
+`deploy.sh` also sets up two Cloud Monitoring alerts. They email `FPL_EMAIL` with the subject
+"⚠️ ACTION NEEDED - FPL agent: …" if a scheduled trigger can't start the job, or if a run fails.
+They watch the logs, so they work even when the job never starts and can't email you itself.
+`./deploy/alerts.sh` re-creates anything missing.
 
 ## When the email says "log in again"
 ```bash
