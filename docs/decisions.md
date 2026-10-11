@@ -1654,7 +1654,7 @@ writes the lineup itself.*
 | **Secret Manager** (`fpl-tokens`, `fpl-email`, `fpl-email-app-password`) | Encrypted, versioned, access-controlled secrets. Versions make the "one live token" rule enforceable (disable old ones). Cloud Run injects the email secrets as environment variables. | *Environment variables baked into the job*: visible to anyone who can view the job, and unversioned. *A file in the bucket*: no versions to disable, weaker access control. |
 | **Cloud Storage bucket** `fpl-agent-jt-fpl-agent-state` | The job's memory between runs: flag snapshots, saved odds, and the run lock (create-only-if-absent is atomic on the server). | *Firestore*: a database for a handful of JSON files. *Container disk*: wiped after every run. |
 | **Artifact Registry + Cloud Build** | Cloud Build turns the source into an image (from the Dockerfile) and stores it in Artifact Registry. Created automatically by `gcloud run jobs deploy --source`. | *Building locally with Docker and pushing*: needs Docker Desktop on the Mac, and the image would be built for Apple silicon rather than the cloud's x86. |
-| **Two service accounts** | `fpl-agent-runner` (the job's identity): admin on the token secret only, read on the email secrets, objects in its bucket, Scheduler admin to re-point its jobs. `fpl-agent-scheduler`: may only trigger the job. | *The default compute account*: broad project rights. A leaked or buggy job could touch everything. |
+| **Two service accounts** | `fpl-agent-runner` (the job's identity): admin on the token secret only, read on the email secrets, objects in its bucket, Scheduler admin to re-point its jobs. `fpl-agent-scheduler`: may only trigger the job. *(Corrected in D41: `roles/run.invoker` lacked the override permission the triggers need, and GW6 was missed.)* | *The default compute account*: broad project rights. A leaked or buggy job could touch everything. |
 | **Budget alert** ($5/month; emails at 50/90/100%) | Guards against surprises. Expected cost is $0 to a few cents: free tiers cover Cloud Run, Scheduler (3 jobs), Secret Manager, and Storage in us-east1. Artifact Registry over 0.5 GB costs about $0.10/GB-month. | — |
 
 **Deploy findings** (2026-10-04, each fixed in `deploy/deploy.sh` or the code):
@@ -1951,6 +1951,84 @@ attention-grabbing subject for the times the user is needed.*
 
 ---
 
+## D41. GW6 was missed: the scheduler couldn't start the job. Fix, alerts, and a deploy that proves the real path
+
+*2026-10-11. Approved: grant the missing permission, prove it through Cloud Scheduler, add email alerts that don't
+depend on the job, verify on every deploy.*
+
+**What happened.**
+- All three GW6 triggers fired on time (Fri 9 Oct 10:00, Sat 10 Oct 09:00 and 09:45 UTC). Cloud Run refused each
+  one with **403 PERMISSION_DENIED**, so the agent never ran. The squad stayed as the user had left it.
+- These were the scheduler's **first-ever attempts**: it was broken from the day it was deployed (D36).
+- Nothing alerted. All failure emails came from the job itself, and a job that never starts can't send them.
+- The schedule wasn't moved forward either (the job does that), so GW7 would have been missed too: the triggers
+  still pointed at the same dates in October 2027.
+
+**Root cause.**
+- Each trigger starts the job *with an override* (`{"overrides":{"containerOverrides":[{"args":["--mode","save"]}]}}`).
+  That needs `run.jobs.runWithOverrides`.
+- The scheduler's account had `roles/run.invoker`, which has only `run.jobs.run`, `run.instances.invoke` and
+  `run.routes.invoke`.
+
+**Why testing didn't catch it.** Every cloud test ran the job with `gcloud run jobs execute` as the **project owner**,
+who has every permission. The real path, Cloud Scheduler calling with its own service account, was never exercised.
+`gcloud scheduler jobs run …` (force-run a trigger) would have shown the 403 on day one. The rehearsals were then
+reported as end-to-end tests, which they weren't.
+
+**Decision.**
+1. **A custom role `fplAgentJobRunner`** with exactly `run.jobs.run` + `run.jobs.runWithOverrides`, granted on this
+   job only to `fpl-agent-scheduler`. It replaces `roles/run.invoker`, in `deploy.sh` too.
+2. **Email alerts that don't depend on the job** (`deploy/alerts.sh`, Cloud Monitoring log-match policies, run by
+   `deploy.sh`). They email `FPL_EMAIL` with the subject "⚠️ ACTION NEEDED - FPL agent: …" when:
+   - **"a scheduled run could not start"**: Cloud Scheduler logs an ERROR for an `fpl-agent-*` attempt;
+   - **"a run failed"**: Cloud Run logs an ERROR system event for a failed run (a crash, a timeout or an error exit).
+
+   The GW6 failure would have emailed on Friday at 10:00 UTC, a day before the deadline. Free at this volume.
+3. **A deploy is only done when the real path works** (`deploy/verify.sh`, run at the end of `deploy.sh`):
+   - Cloud Scheduler force-runs the `check` trigger;
+   - the script requires the scheduler's call to be accepted, a run to start, and that run to succeed;
+   - otherwise it exits non-zero with the reason.
+
+   A check run is safe: it only reads from FPL, records the week's data and re-points the schedule.
+
+**How each part was proven** (the user's rule: nothing is "done" until verified through the real path):
+- **Permission:** a scheduler-started check run got HTTP 200, where all three before got 403. The run succeeded and
+  re-pointed the triggers to GW7 (Fri 16 Oct check, Sat 17 Oct save and final).
+- **`verify.sh` catches this bug:** with the permission removed on purpose, it failed with "Cloud Scheduler's call
+  was refused (status code 7)". With the permission restored, it passed.
+- **Alerts:**
+  - Each opened about a minute after a real trigger: a test scheduler-error log entry, and a deliberately failed
+    run (an invalid `--mode`, rejected before any FPL call). The user confirmed both emails arrived.
+  - The first test had been written 10 s after the policy was created. New log alerts take minutes to become
+    active, so it never fired.
+  - `alerts.sh` was run in both modes: it found the existing policies, and it created (then deleted) test copies.
+- **The full `deploy.sh`** ran end to end, ending in a verified scheduler-started run.
+
+**Alternatives rejected.**
+- *`roles/run.developer`*: it includes the override permission, but also lets the scheduler change and redeploy
+  the job.
+- *Three jobs with the mode baked in, no overrides*: three images and configs to keep in step, for the same result.
+- *Testing with the owner account and assuming the scheduler is the same*: this incident.
+- *An external uptime pinger*: another service and another account. Cloud Monitoring is in the same project and
+  watches the same logs.
+
+**What GW6 cost** (rebuilt afterwards: the agent's own code at Sat 09:00 UTC, using only what was known then):
+- **The agent would have:** made 3 free transfers (João Pedro → Barry, Gvardiol → Mukiele, Kadıoğlu → Hall); started
+  Hall, O'Shea and Le Fée; captained B.Fernandes; kept the Wildcard.
+- **Its Saturday forecast:** 57.8 xPts and 72% to win, against 51.2 xPts and 61% for the lineup actually fielded.
+- **Real points** (provisional, with Hall still to play on Monday): the fielded team **59**, the agent's **52 + Hall**,
+  the opponent **56** after auto-subs. The fielded team won.
+- **The 7-point gap:** selling João Pedro −6 (12 vs 6), captaincy −5 (Haaland 12 vs B.Fernandes 2), Gvardiol → Mukiele
+  −1, starting O'Shea and others +5.
+- One week is mostly luck. The decision was better in expectation, and the D40 season replay remains the evidence.
+
+**Consequences.**
+- The deploy's closing advice no longer suggests `gcloud run jobs execute` as a test.
+- Remaining gap: a schedule that's wrong but never fails (paused triggers, or bad times computed without an error)
+  would still be silent. See Q11.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2103,3 +2181,10 @@ anyway.
 Recommendation: watch the weekly "keep it / play it" lines in the summary email. At about GW12, compare the
 Wildcard and Free Hit verdicts with what the simulations say they'd have gained, and adjust before the GW15–19
 run-in, when the first set must be used.
+
+**Q11. What if the schedule is wrong but nothing fails?** *(D41, 2026-10-11.)* The alerts catch a refused trigger and a
+failed run. They don't catch a trigger that never fires: paused, deleted, or pointed at the wrong time by a re-point
+that didn't error.
+Recommendation: a "deadline watchdog". Each successful save run records its gameweek, and an independent check (a
+Monitoring metric-absence alert, or a fourth fixed daily trigger) emails if a deadline is under 3 hours away and no
+save run has succeeded for that gameweek. Decide at the GW10–11 review.

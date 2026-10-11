@@ -76,7 +76,15 @@ gcloud run jobs deploy "$JOB" --source . --region "$REGION" \
   --service-account "$RUNNER" \
   --set-env-vars "FPL_TOKEN_STORE=secret-manager,FPL_GCP_PROJECT=${PROJECT},FPL_BUCKET=${BUCKET},FPL_REGION=${REGION},FPL_LIVE=1,FPL_ENTRY_ID=${FPL_ENTRY_ID},FPL_H2H_LEAGUE_ID=${FPL_H2H_LEAGUE_ID}" \
   --set-secrets "FPL_EMAIL=fpl-email:latest,FPL_EMAIL_APP_PASSWORD=fpl-email-app-password:latest"
-gcloud run jobs add-iam-policy-binding "$JOB" --region "$REGION" --member="serviceAccount:${INVOKER}" --role=roles/run.invoker >/dev/null
+# The scheduler starts the job WITH an override (--mode), which needs run.jobs.runWithOverrides.
+# roles/run.invoker doesn't include it: every scheduled run got a 403 and GW6 was missed (D41).
+# So a custom role with exactly the two permissions, granted on this job only.
+RUN_ROLE="projects/${PROJECT}/roles/fplAgentJobRunner"
+gcloud iam roles describe fplAgentJobRunner --project "$PROJECT" >/dev/null 2>&1 ||
+  gcloud iam roles create fplAgentJobRunner --project "$PROJECT" --stage GA \
+    --title "Run the FPL agent job (with --mode overrides)" \
+    --permissions run.jobs.run,run.jobs.runWithOverrides >/dev/null
+gcloud run jobs add-iam-policy-binding "$JOB" --region "$REGION" --member="serviceAccount:${INVOKER}" --role="$RUN_ROLE" >/dev/null
 
 say "Scheduler jobs (placeholder times: the first run points them at the real deadlines)"
 for mode in check save final; do
@@ -95,6 +103,15 @@ for mode in check save final; do
   fi
 done
 
-say "Done. Next (once): upload the FPL login, then run a check to set the real schedule:"
-echo "  python -m fpl_agent.cloud.upload_token"
-echo "  gcloud run jobs execute ${JOB} --region ${REGION} --args=--mode,check --wait"
+say "Alerts (D41): email if a scheduled trigger or a run fails, even when the job never starts"
+./deploy/alerts.sh
+
+# A deploy is only done when Cloud Scheduler has started a run with its own account (D41).
+if [[ -n "$(gcloud secrets versions list fpl-tokens --filter=state:ENABLED --format='value(name)')" ]]; then
+  say "Verify through the real path: Cloud Scheduler starts a check run"
+  ./deploy/verify.sh
+else
+  say "Done, but NOT verified yet. Next (once): upload the FPL login, then prove the real path:"
+  echo "  python -m fpl_agent.cloud.upload_token"
+  echo "  ./deploy/verify.sh"
+fi
