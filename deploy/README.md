@@ -10,6 +10,11 @@ The agent runs as a Cloud Run job, three times per gameweek (D36):
 
 After every run the job points the three Cloud Scheduler jobs at the next deadline (read from FPL).
 
+A fourth trigger, `fpl-agent-watchdog`, runs every 30 minutes on a fixed timetable (D42). It checks
+that the three triggers are enabled and set for their next times (it re-points wrong times, and
+reports paused or missing ones), and that the save run happened before each deadline. It never
+logs in to FPL.
+
 ## One-time setup
 1. A Google Cloud project with billing, `gcloud auth login`, and
    `gcloud auth application-default login` (lets the Python code on your Mac use Google Cloud),
@@ -35,7 +40,14 @@ After every run the job points the three Cloud Scheduler jobs at the next deadli
 `deploy.sh` also sets up two Cloud Monitoring alerts. They email `FPL_EMAIL` with the subject
 "⚠️ ACTION NEEDED - FPL agent: …" if a scheduled trigger can't start the job, or if a run fails.
 They watch the logs, so they work even when the job never starts and can't email you itself.
-`./deploy/alerts.sh` re-creates anything missing.
+Each failure emails, at most once per 5 minutes per alert; an alert closes 30 minutes after it opens.
+`./deploy/alerts.sh` re-creates anything missing and re-applies the settings.
+
+## Stopping the agent on purpose
+Pause all four triggers, the watchdog included:
+`for t in check save final watchdog; do gcloud scheduler jobs pause fpl-agent-$t --location us-east1; done`.
+If you pause only the gameweek ones, the watchdog emails you that they won't run, which is its job.
+To restart, resume them, then run `./deploy/verify.sh` to re-point and prove the schedule.
 
 ## When the email says "log in again"
 ```bash

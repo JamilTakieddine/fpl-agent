@@ -4,7 +4,8 @@
 # quiet week. Cloud Monitoring watches the logs instead and emails FPL_EMAIL when:
 #   - a scheduled trigger fails (Cloud Scheduler logs an ERROR for the attempt), or
 #   - a run of the job fails (crash, timeout, error exit: Cloud Run logs an ERROR system event).
-# Safe to re-run: finds the email channel and the two policies by name, creates what's missing.
+# Safe to re-run: finds the email channel and the two policies by name, creates what's missing,
+# and re-applies the alert strategy to existing ones (so a change here reaches them).
 # Uses the Monitoring REST API (gcloud only has alpha/beta commands for alert policies).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -33,24 +34,32 @@ print(json.dumps({"type": "email", "displayName": "FPL agent owner",
   echo "created the email channel"
 fi
 
+# At most one email per 5 minutes per policy; later failures still email while an alert is open
+# (verified, D42). Alerts close 30 minutes (the minimum) after opening, so the open-alert list
+# shows current problems rather than old ones.
+STRATEGY='{"notificationRateLimit": {"period": "300s"}, "autoClose": "1800s"}'
+
 EXISTING="$(mon "$API/alertPolicies" | python3 -c '
 import json, sys
-print("\n".join(p["displayName"] for p in json.load(sys.stdin).get("alertPolicies", [])))')"
+print("\n".join(p["displayName"] + "\t" + p["name"] for p in json.load(sys.stdin).get("alertPolicies", [])))')"
 
 ensure_alert() {  # name, log filter, what the email tells you to do
-  if grep -qxF "$1" <<<"$EXISTING"; then
-    echo "alert exists: $1"
+  local existing
+  existing="$(awk -F'\t' -v n="$1" '$1 == n {print $2}' <<<"$EXISTING")"
+  if [[ -n "$existing" ]]; then
+    mon -X PATCH "https://monitoring.googleapis.com/v3/${existing}?updateMask=alertStrategy" \
+      -d "{\"alertStrategy\": ${STRATEGY}}" >/dev/null
+    echo "alert exists (strategy re-applied): $1"
     return
   fi
-  NAME="$1" FILTER="$2" DOC="$3" CHANNEL="$CHANNEL" python3 -c '
+  NAME="$1" FILTER="$2" DOC="$3" CHANNEL="$CHANNEL" STRATEGY="$STRATEGY" python3 -c '
 import json, os
 e = os.environ
 print(json.dumps({
     "displayName": e["NAME"],
     "combiner": "OR",
     "conditions": [{"displayName": e["NAME"], "conditionMatchedLog": {"filter": e["FILTER"]}}],
-    # At most one email per 5 minutes; an alert closes itself after a day.
-    "alertStrategy": {"notificationRateLimit": {"period": "300s"}, "autoClose": "86400s"},
+    "alertStrategy": json.loads(e["STRATEGY"]),
     "notificationChannels": [e["CHANNEL"]],
     "severity": "CRITICAL",
     "documentation": {"mimeType": "text/markdown",
