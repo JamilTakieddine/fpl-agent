@@ -2029,6 +2029,79 @@ reported as end-to-end tests, which they weren't.
 
 ---
 
+## D42. A deadline watchdog on its own fixed trigger
+
+*2026-10-12. Approved: build Q11's watchdog now, if it's safer ("if you deem it better to build it now, and it's
+safer, go for it").*
+
+**Context.** D41's alerts catch a trigger that fires and is refused, and a run that fails. They can't see a trigger
+that never fires: paused, deleted, or set to the wrong time by a re-point that didn't error. That's the GW6 state
+(triggers pointing at October 2027) reached by another route. Missing a deadline is goal 1.
+
+**Decision.** A fourth Cloud Scheduler trigger, `fpl-agent-watchdog`:
+- **Its own timetable:** a fixed `5,35 * * * *` that the job never re-points. :05 and :35 keep it clear of the
+  gameweek runs, which fire on the hour or half hour.
+- **What it starts:** the same job in `--mode watchdog` (`fpl_agent/cloud/watchdog.py`).
+- **What it reads:** public FPL deadlines, the three triggers' real state in Cloud Scheduler, and the bucket. It
+  never logs in to FPL, so it never touches the token or the run lock, and it never writes to FPL.
+
+Each pass:
+1. **Checks each gameweek trigger** (check, save, final) exists, is ENABLED and is set for its next time
+   (`next_runs`).
+   - A **wrong time** is fixed with the same `repoint` every run does, then reported.
+   - A **paused or missing** trigger is only reported, as urgent. A pause may be deliberate, so the watchdog never
+     resumes anything.
+2. **Checks the save run happened.** Once its time plus 10 minutes has passed and the deadline hasn't, the save
+   run's record (`runs/saved_gwNN.json`, written by a save run whose lineup was sent) must exist. If it doesn't,
+   an urgent email arrives while there's still time to set the team by hand.
+3. **Skips judging while a run may be in progress:** within 20 minutes of any run's due time, before it has
+   re-pointed.
+
+Each problem emails once (a create-if-absent record in the bucket). A new urgent problem also exits non-zero, so
+D41's "a run failed" alert is a second email path in case Gmail is the problem. A crashing watchdog emails once a
+day, not every 30 minutes.
+
+**Alerts close after 30 minutes (was 24 h in D41): housekeeping, not a fix.** An open alert takes on later matches
+(its resource label changed to the newest one). I suspected that would also swallow their emails, and wrote that
+up as the reason for this change before checking it. **The evidence said otherwise:** the watchdog's deliberate
+failure at 00:03 UTC emailed the user while the 23:04 "a run failed" alert was still open. Later matches still
+notify, subject to the 5-minute rate limit. The 30-minute auto-close (the minimum) stays, because it keeps the
+open-alert list a picture of current problems instead of tests from a day ago. `alerts.sh` now re-applies the
+strategy to existing rules, so a change reaches them.
+
+**How it was proven** (through the real path, including on purpose):
+- **The tests.** 8 unit tests, including the save record being written only by a live save. That test was checked
+  by breaking the code it covers and seeing it fail.
+- **The deploy.** A full deploy created the trigger and ended with `verify.sh` proving both scheduler-started paths:
+  the check run, and a watchdog run that checked GW7 and found nothing wrong.
+- **The timetable.** The 00:05 UTC watchdog run started by itself (Cloud Scheduler got HTTP 200 without a manual
+  trigger) and found nothing wrong.
+- **A wrong time.** The save trigger was set to the GW6-style stale date. The watchdog re-pointed it to Sat 17 Oct
+  09:00 UTC and emailed "fixed the schedule".
+- **A paused trigger.** With the final trigger paused, the watchdog emailed an urgent problem, did not resume it,
+  and exited 1. The trigger was then resumed and the test's "already emailed" record deleted, so a real pause
+  still alerts.
+
+**Not yet proven:** a live save run writing its record. Only a live save writes it, and nothing was sent to FPL to
+test it. It's unit-tested; check that `runs/saved_gw07.json` exists after the GW7 save run (Sat 17 Oct, 09:00 UTC).
+If it were missing, the cost is a false urgent email at 09:35; the save itself doesn't depend on it.
+
+**Alternatives rejected.**
+- *A Monitoring metric-absence alert:* absence windows are about a day, and deadlines are a week apart.
+- *An external uptime service:* another account and another place to keep in step.
+- *The watchdog resuming paused triggers:* it would undo a deliberate pause.
+- *The watchdog starting a missed save run itself:* a save run makes transfers, and a second one after a crash
+  could make more. It emails instead.
+- *Every 15 minutes:* doubles the runs for a small gain. At :05/:35 an unsaved deadline is flagged 25 to 35 minutes
+  before it.
+
+**Consequences.**
+- Four scheduler triggers, about $0.10 a month for the fourth; about 1,440 short runs a month, within Cloud Run's
+  free tier.
+- To stop the agent on purpose, pause all four triggers. Pausing only the gameweek ones gets you urgent emails.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2182,7 +2255,7 @@ Recommendation: watch the weekly "keep it / play it" lines in the summary email.
 Wildcard and Free Hit verdicts with what the simulations say they'd have gained, and adjust before the GW15–19
 run-in, when the first set must be used.
 
-**Q11. What if the schedule is wrong but nothing fails?** *(D41, 2026-10-11.)* The alerts catch a refused trigger and a
+**Q11. What if the schedule is wrong but nothing fails?** *(D41, 2026-10-11.)* *Answered in D42: the deadline watchdog.* The alerts catch a refused trigger and a
 failed run. They don't catch a trigger that never fires: paused, deleted, or pointed at the wrong time by a re-point
 that didn't error.
 Recommendation: a "deadline watchdog". Each successful save run records its gameweek, and an independent check (a

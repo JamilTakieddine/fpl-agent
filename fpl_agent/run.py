@@ -1,4 +1,4 @@
-"""The cloud job: python -m fpl_agent.run --mode check|save|final   (D36)
+"""The cloud job: python -m fpl_agent.run --mode check|save|final|watchdog   (D36, D42)
 
 Every run holds the run lock (one token refresher at a time), records this run's flag and odds
 snapshots, does its mode's work, and ALWAYS finishes by pointing the three schedules at their
@@ -11,13 +11,17 @@ next times, so one failed run can't break the chain:
   full summary;
 - final (15 min before): runs again with the latest news, saves only if the pick changed; emails
   only then, or on a failure.
-Any error emails you before the job exits non-zero.
+Any error emails you before the job exits non-zero. A save run that saved the lineup leaves a
+record in the bucket for the watchdog (D42): every 30 minutes, on its own fixed trigger, it checks
+the three triggers will fire and that the save run happened (fpl_agent/cloud/watchdog.py). It
+never logs in to FPL, so it doesn't take the run lock.
 """
 
 from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import sys
 import time
@@ -28,6 +32,7 @@ from fpl_agent.agent import CHIP_LABELS, RunResult, run_gameweek
 from fpl_agent.auth import AuthError, RateLimitedError, TokenManager
 from fpl_agent.cloud.schedule import MODES, CloudScheduler, repoint
 from fpl_agent.cloud.storage import BucketOddsStore, BucketSnapshotStore, GcsBucket, LockHeld
+from fpl_agent.cloud.watchdog import run_watchdog, saved_record
 from fpl_agent.config import Settings, load_settings
 from fpl_agent.data.calendar import build_calendar, next_deadline
 from fpl_agent.data.client import FplClient, make_session
@@ -36,7 +41,7 @@ from fpl_agent.data.odds import load_odds
 from fpl_agent.data.odds_store import record_odds
 from fpl_agent.data.snapshots import record_snapshot
 from fpl_agent.notify import Mailer, mailer_from_env
-from fpl_agent.reminders import reminder_for
+from fpl_agent.reminders import ACTION_PREFIX, reminder_for
 from fpl_agent.stores import cloud_config, token_guard, token_store
 from fpl_agent.submit import hits_allowed, live_mode
 
@@ -92,6 +97,7 @@ def gameweek_work(
     live: bool,
     snapshots: BucketSnapshotStore,
     odds: BucketOddsStore,
+    bucket: GcsBucket,
 ) -> int:
     client.my_team(settings.entry_id)  # refreshes the token if needed, proving the login
     note = record(client, snapshots, odds)
@@ -121,6 +127,11 @@ def gameweek_work(
     subject = email_subject(mode, result, live)
     if subject:
         mailer.send(subject, out.getvalue())
+    if mode == "save" and result.saved is not None and result.saved.sent:
+        # The watchdog's proof that this gameweek's save run happened (D42).
+        proof = {"event": result.event, "at": datetime.now(UTC).isoformat()}
+        proof["verified"] = result.saved.verified
+        bucket.write(saved_record(result.event), json.dumps(proof))
     return 1 if subject and "FAILED" in subject else 0
 
 
@@ -136,7 +147,9 @@ def run(mode: str, settings: Settings, mailer: Mailer, live: bool) -> int:
         for attempt in range(1, LOCK_ATTEMPTS + 1):
             try:
                 with token_guard():
-                    return gameweek_work(mode, client, settings, mailer, live, snapshots, odds)
+                    return gameweek_work(
+                        mode, client, settings, mailer, live, snapshots, odds, bucket
+                    )
             except LockHeld:
                 if attempt == LOCK_ATTEMPTS:
                     raise
@@ -170,11 +183,42 @@ def run(mode: str, settings: Settings, mailer: Mailer, live: bool) -> int:
             mailer.send("FPL agent: couldn't re-point the schedule", f"{type(e).__name__}: {e}")
 
 
+def watchdog(mailer: Mailer) -> int:
+    """One watchdog pass (D42): public FPL deadlines, the triggers, the bucket. No FPL login."""
+    cloud = cloud_config()
+    if cloud is None:
+        raise SystemExit("the watchdog is part of the cloud job: set FPL_TOKEN_STORE etc.")
+    bucket = GcsBucket(cloud.bucket)
+    try:
+        boot = FplClient(make_session()).bootstrap()
+        return run_watchdog(
+            [(e.id, e.deadline_time) for e in boot.events],
+            datetime.now(UTC),
+            CloudScheduler(cloud.project, os.environ.get(REGION_ENV, "us-east1")),
+            bucket,
+            mailer,
+        )
+    except Exception:
+        # It runs every 30 minutes: a broken watchdog emails (and fails) once a day, not 48 times.
+        print(traceback.format_exc())
+        key = f"watchdog/crash-{datetime.now(UTC):%Y%m%d}.json"
+        try:
+            first_today = bucket.create(key, json.dumps({"at": datetime.now(UTC).isoformat()}))
+        except Exception:
+            first_today = True
+        if not first_today:
+            return 0
+        mailer.send(f"{ACTION_PREFIX}the watchdog itself failed", traceback.format_exc())
+        return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--mode", choices=list(MODES), required=True)
+    parser.add_argument("--mode", choices=[*MODES, "watchdog"], required=True)
     args = parser.parse_args()
     mailer = mailer_from_env()
+    if args.mode == "watchdog":
+        return watchdog(mailer)
     try:
         return run(args.mode, load_settings(), mailer, live_mode(sys.argv[1:], os.environ))
     except Exception:

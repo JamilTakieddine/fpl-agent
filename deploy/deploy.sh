@@ -103,6 +103,21 @@ for mode in check save final; do
   fi
 done
 
+say "Watchdog trigger (D42): every 30 min, on a fixed timetable the job never re-points"
+# :05 and :35, clear of the gameweek runs (on the hour or half hour). It checks the three triggers
+# above will fire and that the save run happened. A 4th scheduler job: about $0.10/month.
+watchdog=(--location "$REGION" --schedule "5,35 * * * *" --time-zone Etc/UTC
+  --uri "https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB}:run"
+  --http-method POST --oauth-service-account-email "$INVOKER"
+  --message-body '{"overrides":{"containerOverrides":[{"args":["--mode","watchdog"]}]}}')
+if gcloud scheduler jobs describe fpl-agent-watchdog --location "$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http fpl-agent-watchdog "${watchdog[@]}" \
+    --update-headers Content-Type=application/json >/dev/null
+else
+  gcloud scheduler jobs create http fpl-agent-watchdog "${watchdog[@]}" \
+    --headers Content-Type=application/json >/dev/null
+fi
+
 say "Alerts (D41): email if a scheduled trigger or a run fails, even when the job never starts"
 ./deploy/alerts.sh
 

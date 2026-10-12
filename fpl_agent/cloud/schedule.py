@@ -12,6 +12,7 @@ each Cloud Scheduler job is pointed at its next time, so the chain survives a fa
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
@@ -39,6 +40,15 @@ def cron(at: datetime) -> str:
     return f"{at.minute} {at.hour} {at.day} {at.month} *"
 
 
+@dataclass(frozen=True)
+class Trigger:
+    """A trigger as Cloud Scheduler has it (read by the watchdog, D42)."""
+
+    exists: bool
+    enabled: bool  # ENABLED; paused or disabled triggers don't fire
+    next_time: datetime | None  # when it will next fire
+
+
 class Scheduler(Protocol):
     def set(self, mode: str, cron_line: str) -> None: ...
 
@@ -52,6 +62,21 @@ class CloudScheduler:
         self.types = scheduler_v1
         self.client = client or scheduler_v1.CloudSchedulerClient(transport="rest")  # see tokens.py
         self.parent = f"projects/{project}/locations/{region}"
+
+    def get(self, mode: str) -> Trigger:
+        from google.api_core.exceptions import NotFound
+
+        try:
+            job = self.client.get_job(name=f"{self.parent}/jobs/fpl-agent-{mode}")
+        except NotFound:
+            return Trigger(exists=False, enabled=False, next_time=None)
+        enabled = job.state == self.types.Job.State.ENABLED
+        # The library declares a protobuf Timestamp but returns a tz-aware datetime (checked
+        # against the real API); anything else counts as "no time", which the watchdog fixes.
+        at = job.schedule_time
+        return Trigger(
+            exists=True, enabled=enabled, next_time=at if isinstance(at, datetime) else None
+        )
 
     def set(self, mode: str, cron_line: str) -> None:
         from google.protobuf import field_mask_pb2
