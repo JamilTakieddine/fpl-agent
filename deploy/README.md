@@ -56,6 +56,7 @@ python -m fpl_agent.cloud.upload_token     # becomes the cloud's only token
 ```
 
 ## Costs
-A few runs a week of about a minute each. This normally fits the free tiers of Cloud Run,
-Scheduler (3 jobs), Secret Manager and Cloud Storage in us-east1. A budget alert guards against
-surprises.
+Three gameweek runs a week of about two minutes each, plus a watchdog check of a few seconds every
+30 minutes. Cloud Run, Secret Manager and Cloud Storage stay within their free tiers in us-east1.
+Cloud Scheduler includes 3 jobs free; the watchdog's 4th costs about $0.10 a month. A budget alert
+guards against surprises.

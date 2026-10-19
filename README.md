@@ -1,71 +1,115 @@
 # fpl-agent
 
-An autonomous Fantasy Premier League manager. It runs before each gameweek deadline, simulates the week,
-and sets the lineup, captain, bench, transfers and chips to maximize head-to-head win probability.
+An autonomous Fantasy Premier League manager. Before every gameweek deadline it simulates the week
+10,000 times, then sets your lineup, captain, bench order, transfers and chips to maximize the chance
+of beating this week's head-to-head opponent. It emails you what it did and why. You don't have to do
+anything.
 
-Status:
-- **Phase 1 (data layer): complete.** Typed FPL API client with auth and token refresh, fixture calendar
-  with double/blank gameweek detection, H2H opponent inputs, predicted-lineup baseline with
-  availability-flag snapshots, and Kalshi match odds converted to expected goals.
-- **Phase 2 (Monte Carlo simulations): complete.** Scorelines from odds (live Kalshi → saved Kalshi → xG
-  ratings, Dixon-Coles from the market's draw price), minutes, attacking and defensive events, bonus, and
-  FPL points, validated against 2025/26 and early 2026/27: it beats form-based benchmarks on accuracy
-  and ranking, with honest probabilities (`docs/validation.md`).
-- **Phase 3 (optimizer): complete.** An FPL rules engine that reproduces FPL's own scores; a vectorized
-  scorer (a lineup over 10,000 simulations in about 1 ms); the H2H opponent model; a lineup and captain
-  optimizer that maximizes the chance of beating this week's opponent by 3+; 5-week transfer
-  recommendations; saving the lineup behind dry-run safety checks; and a back-test against the league's
-  real lineups (`docs/optimizer_backtest.md`; no proven edge over careful managers yet, fair rerun at
-  GW10–11).
-- **Phase 4 (cloud): complete.** A self-scheduling Cloud Run job saves the lineup before every deadline
-  (`deploy/README.md`).
-- **Phase 5 (planner): complete.** The agent makes free transfers itself, planned over 5 weeks with an exact
-  optimizer (HiGHS) and checked by the simulations, and plays all four chips the same way (first set before
-  GW19). Replaying 2025/26 (`docs/planner_backtest.md`): 2,157 points vs 1,536 for holding the starting squad
-  and 2,025 for one-week transfer logic. It emails "⚠️ ACTION NEEDED" reminders before the few reviews that
-  need you (GW10, GW14, GW19, GW20, GW38).
+**Track record:**
+- **Live in 2026/27:**
+  - **GW6:** missed. A cloud permission had been tested the wrong way. It's fixed, and now
+    checked on every deploy (`docs/decisions.md`, D41).
+  - **GW7:** won 81–74 in my head-to-head league, running entirely on its own.
+- **Replaying the whole 2025/26 season with the agent in charge:** **2,157 points**, against 1,536
+  for never transferring and 2,025 for one-week transfer logic (`docs/planner_backtest.md`).
 
-## Setup
+## How it works
+
+1. **Betting odds become expected goals.** Each fixture's match-result and total-goals prices
+   (Kalshi prediction markets, with fallbacks) are turned into expected goals for both teams.
+2. **10,000 simulated gameweeks.** For every player, each simulation draws:
+   - **minutes:** no minutes, a cameo or a full match, from predicted lineups and injury flags;
+   - **attacking returns:** goals and assists, given the simulated scoreline;
+   - **defensive returns:** clean sheets, saves and defensive contributions;
+   - **bonus.**
+
+   Each simulation is then scored with FPL's own scoring rules. Validated against two seasons
+   (`docs/validation.md`).
+3. **A model of your opponent.** Their picks are hidden until the deadline, so they're modelled
+   from last week's squad:
+   - a probability spread over their likely captain, from their past picks and who's in form;
+   - a chance they play a chip, from how often managers really do (FPL's own counts).
+4. **Lineup and captain.** It picks the lineup that maximizes P(beat the opponent by 3+), allowing
+   at most 1 point less in expected points than the highest-scoring lineup.
+5. **Transfers and chips, 5 weeks ahead.**
+   - **Planning:** an exact optimizer (HiGHS mixed-integer programming) plans transfers and chips
+     over the next 5 weeks.
+   - **Checking:** every transfer and chip is then re-checked on the full simulation before it's
+     made. A chip is only played when it beats what keeping it is worth.
+   - **Limits:** free transfers only (unless you allow -4 hits). The first set of chips is
+     scheduled before the GW19 cutoff, when unused chips are lost.
+6. **It runs itself.** A Google Cloud job runs at three times for every deadline:
+   - **24 hours before:** checks the login still works;
+   - **60 minutes before:** makes the transfers, saves the lineup and emails the summary;
+   - **15 minutes before:** re-checks with the latest team news.
+
+   A watchdog checks every 30 minutes that the runs will fire. Alerts email you if anything fails.
+
+Every design decision, the alternatives considered and why they lost, is in
+[`docs/decisions.md`](docs/decisions.md) (44 of them, so far).
+
+## Run it for your own team
+
+You need Python 3.12 and an FPL team. A head-to-head league is optional: without one, it plays
+to beat FPL's average score.
+
 ```bash
+git clone https://github.com/JamilTakieddine/fpl-agent.git && cd fpl-agent
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,login,cloud]"   # + tooling, the browser login, Google Cloud libs
+pip install -e ".[dev,login,cloud]"
 playwright install chromium
-pre-commit install        # ruff + mypy + hygiene checks on every commit
-cp .env.example .env      # fill in FPL_ENTRY_ID and FPL_H2H_LEAGUE_ID
+cp .env.example .env
 ```
 
-## Usage
+1. **Your IDs.** In `.env`, set:
+   - `FPL_ENTRY_ID`, the number in your team's points URL
+     (`fantasy.premierleague.com/entry/<this>/event/…`);
+   - optionally, `FPL_H2H_LEAGUE_ID`, the number in your head-to-head league's URL.
+2. **Log in once.** `python spikes/phase0_auth.py` opens a browser for you to sign in to FPL.
+   The session is saved to `.secrets/` (git-ignored, never committed).
+3. **Dry run.** `python -m fpl_agent.optimize` prints the recommended lineup, captain, transfers and
+   chips against this week's opponent. **Nothing is sent to FPL.**
+4. **Go live**, either way:
+   - **On your machine, before each deadline:**
+     - `python -m fpl_agent.optimize --live` saves the lineup;
+     - add `--transfers` to also make the planned transfers.
+   - **Fully automatic, on Google Cloud:** follow [`deploy/README.md`](deploy/README.md). It needs
+     a Google Cloud project with billing, and a Gmail app password for the emails.
+     `./deploy/deploy.sh` sets everything up. Once your login is uploaded, it proves the scheduled
+     runs work end to end.
+
+**Safety defaults:**
+- **Dry run unless you ask:** anything that writes to FPL is a dry run unless you pass `--live`
+  (or set `FPL_LIVE=1` in the cloud).
+- **Checked first:** every write is logged exactly, and checked against FPL's rules and the deadline
+  before it's sent. It's never retried automatically, and it's read back to confirm it landed.
+- **Free transfers only:** -4 hits are never taken unless you set `FPL_ALLOW_HITS=1`.
+
+**Cost on Google Cloud:** about $0.10 a month (a fourth Cloud Scheduler job). Everything else
+fits the free tiers. Set a budget alert anyway (Billing → Budgets & alerts in the Google Cloud
+console).
+
+## More commands
+
 ```bash
-python -m fpl_agent.model         # simulate the next gameweek: your squad's xPts and haul chances
-python -m fpl_agent.optimize      # DRY RUN: recommended lineup/captain vs this week's H2H opponent,
-                                  # the save payload, plus transfer advice over the next 5 gameweeks
-python -m fpl_agent.optimize --live  # ...and SAVE the recommended lineup to FPL (after the checks)
-python -m fpl_agent.optimize --live --transfers  # ...and also MAKE the planned transfers (the cloud's save run does this)
-python -m fpl_agent.data          # live check + records snapshots/odds: deadlines, next 6 GWs, H2H opponent,
-                                  # Kalshi odds + expected goals, your team with predicted minutes
-pytest                            # tests (no network; uses tests/fixtures/)
-python scripts/record_fixtures.py # rebuild test fixtures from data/cache/ (e.g. new season)
-python scripts/fetch_history.py   # download last season's archives for back-testing (gitignored)
-python scripts/check_history.py   # verify the rebuilt season is faithful before back-testing
-python scripts/fetch_kalshi_history.py  # this season's Kalshi price history (held-out back-test)
-python scripts/fit_opponent.py    # refit the opponent captain model and AVERAGE scale on league data
-python -m fpl_agent.validation.optimizer  # back-test the optimizer vs the league's real lineups
-python -m fpl_agent.validation.planner_backtest  # replay 2025/26 with the transfer/chip planner (~1 hour)
-python -m fpl_agent.validation --report  # back-test both seasons; writes docs/validation.md
+python -m fpl_agent.data          # deadlines, the next 6 gameweeks, your opponent, odds, predicted minutes
+python -m fpl_agent.model         # simulate the next gameweek: your squad's expected points
+pytest                            # 417 tests, no network
+python -m fpl_agent.validation --report           # back-test the simulation on two seasons
+python -m fpl_agent.validation.planner_backtest   # replay 2025/26 with the planner (~1 hour)
+python -m fpl_agent.validation.optimizer          # back-test the lineup picks vs a league's real ones
+python scripts/fetch_history.py   # download last season's archives for back-testing
+python scripts/fit_opponent.py    # refit the opponent model on your league's history
 ```
 
-## Phase 0
-```bash
-python spikes/phase0_auth.py          # read-only checks; opens a browser to log in only if needed
-python spikes/phase0_auth.py --write  # save your current lineup back unchanged
-python spikes/phase0_auth.py --fresh  # ignore the saved session and log in again
-python spikes/phase0_refresh.py       # swap the saved refresh token for new tokens, no browser
-```
-The first run opens a clean Chromium window for you to log in. The session is saved to `.secrets/`
-(gitignored), and later runs reuse it without a browser until it expires.
+What to re-check during and between seasons (FPL changes its rules and API):
+[`docs/maintenance.md`](docs/maintenance.md).
 
-Why it works this way, and every other design decision: [`docs/decisions.md`](docs/decisions.md).
-What to re-check and how often: [`docs/maintenance.md`](docs/maintenance.md).
-How well the simulation predicts real gameweeks: [`docs/validation.md`](docs/validation.md).
+## Disclaimer
 
-Unofficial project. Not affiliated with the Premier League or Fantasy Premier League.
+An unofficial, personal project, not affiliated with the Premier League or Fantasy Premier League.
+It uses FPL's undocumented web API with your own login, the way the FPL website does. Automating
+your account may not be what FPL intends, so use it at your own risk. Odds data comes from Kalshi's
+public market API.
+
+MIT licensed: see [LICENSE](LICENSE).
