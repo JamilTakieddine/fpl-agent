@@ -41,6 +41,7 @@ from fpl_agent.optimize.opponent import (
     build_opponent_model,
     chip_probabilities,
     opponent_points,
+    ordinary_chip_rates,
 )
 from fpl_agent.optimize.planner import Plan, chip_inputs, pair_moves
 from fpl_agent.optimize.planner import plan_transfers as optimize_plan
@@ -95,7 +96,11 @@ def the_opponent(
     names = {p.id: p.web_name for p in boot.elements}
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
     xp = {int(p): float(e) for p, e in zip(sim.points.player, sim.points.expected(), strict=True)}
-    chips = chip_probabilities(nxt.event, snap.chips_remaining, boot.chips, nxt.calendar)
+    # Ordinary weeks too (D44): how often managers still holding a chip played it, FPL-wide.
+    ordinary = ordinary_chip_rates(
+        boot.events, boot.total_players, boot.chips, nxt.calendar, nxt.event
+    )
+    chips = chip_probabilities(nxt.event, snap.chips_remaining, boot.chips, nxt.calendar, ordinary)
     model = build_opponent_model(
         snap.last_picks,
         [c.captain for c in snap.captain_history],

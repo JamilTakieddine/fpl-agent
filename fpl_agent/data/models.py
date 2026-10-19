@@ -26,6 +26,13 @@ class FplModel(BaseModel):
 # --- bootstrap-static -----------------------------------------------------------------------
 
 
+class EventChipPlay(FplModel):
+    """How many managers FPL-wide played a chip in a gameweek (published as the week goes on)."""
+
+    chip_name: str
+    num_played: int
+
+
 class Event(FplModel):
     """A gameweek."""
 
@@ -38,6 +45,8 @@ class Event(FplModel):
     is_next: bool
     # FPL-wide average score (0 until finished); an H2H "AVERAGE" opponent scores this (D30).
     average_entry_score: int = 0
+    # FPL-wide chip plays this gameweek: how often managers play chips in ordinary weeks (D44).
+    chip_plays: list[EventChipPlay] = []
 
 
 class Team(FplModel):
@@ -119,6 +128,7 @@ class Bootstrap(FplModel):
     element_types: list[ElementType]
     chips: list[ChipDefinition]
     game_config: GameConfig
+    total_players: int = 0  # all FPL squads; the base for chip-play rates (0 in rebuilt seasons)
 
     def next_event(self) -> Event | None:
         """The upcoming gameweek (whose deadline the agent is working towards)."""

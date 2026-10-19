@@ -69,6 +69,16 @@ def test_chip_played_in_first_half_is_gone_only_for_first_half(bootstrap_json: A
     assert "wildcard" in chips_remaining(chip_defs(bootstrap_json), played, 25)
 
 
+def test_a_chip_played_in_the_week_being_decided_was_still_held_going_in(
+    bootstrap_json: Any,
+) -> None:
+    # GW7 replayed today: the rival's history shows Triple Captain in GW7, but going into GW7
+    # they held it (D44). From GW8 on it's gone.
+    played = [ChipPlay(name="3xc", event=7)]
+    assert "3xc" in chips_remaining(chip_defs(bootstrap_json), played, 7)
+    assert "3xc" not in chips_remaining(chip_defs(bootstrap_json), played, 8)
+
+
 def test_first_half_chips_are_gone_in_second_half_even_if_unused(bootstrap_json: Any) -> None:
     # Unused first-set chips are forfeited at GW19: at GW20 only the second set exists.
     played = [ChipPlay(name=n, event=30) for n in ("wildcard", "freehit", "bboost", "3xc")]

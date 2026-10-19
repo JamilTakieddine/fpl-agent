@@ -16,6 +16,8 @@ from fpl_agent.data.models import (
     Bootstrap,
     ChipDefinition,
     EntryPicks,
+    Event,
+    EventChipPlay,
     PositionCode,
     PublicPick,
 )
@@ -32,6 +34,7 @@ from fpl_agent.optimize.opponent import (
     fit_average_scale,
     fit_captain,
     opponent_points,
+    ordinary_chip_rates,
     team_sheet,
 )
 from fpl_agent.optimize.rules import Limits, Lineup, auto_subs
@@ -164,6 +167,54 @@ def test_one_chip_per_week_caps_the_total() -> None:
     both = chip_probabilities(19, {"3xc", "bboost"}, FIRST_HALF, calendar(set()))
     assert sum(both.values()) == pytest.approx(CHIP_CAP)
     assert both["3xc"] == pytest.approx(both["bboost"])
+
+
+def event(gw: int, triple: int, bench: int, finished: bool = True) -> Event:
+    return Event(
+        id=gw,
+        name=f"Gameweek {gw}",
+        deadline_time=datetime(2026, 8, 1, tzinfo=UTC),
+        finished=finished,
+        is_previous=False,
+        is_current=False,
+        is_next=False,
+        chip_plays=[
+            EventChipPlay(chip_name="3xc", num_played=triple),
+            EventChipPlay(chip_name="bboost", num_played=bench),
+        ],
+    )
+
+
+def test_ordinary_rates_are_plays_over_managers_still_holding_the_chip() -> None:
+    # 1,000 managers. Triple Captain: 100 play in GW1 (10% of 1,000), 90 in GW2 (10% of the 900
+    # still holding it), 162 in GW3 (20% of the 810 left): average 13.3%. Bench Boost: 20, 0, 49
+    # -> 2% of 1,000, 0% of 980, 5% of 980. GW4 isn't finished: ignored.
+    events = [event(1, 100, 20), event(2, 90, 0), event(3, 162, 49), event(4, 999, 999, False)]
+    rates = ordinary_chip_rates(events, 1000, FIRST_HALF, calendar(set()), 4)
+    assert rates["3xc"] == pytest.approx((0.10 + 0.10 + 0.20) / 3)
+    assert rates["bboost"] == pytest.approx((0.02 + 0.0 + 49 / 980) / 3)
+
+
+def test_ordinary_rates_skip_chip_worthy_weeks_and_need_data() -> None:
+    # GW2 is a double: a spike there says nothing about ordinary weeks (but still uses up holders).
+    events = [event(1, 100, 0), event(2, 500, 0), event(3, 40, 0)]
+    rates = ordinary_chip_rates(events, 1000, FIRST_HALF, calendar({2}), 4)
+    assert rates["3xc"] == pytest.approx((0.10 + 40 / 400) / 2)
+    assert ordinary_chip_rates(events, 1000, FIRST_HALF, calendar(set()), 1) == {}  # no weeks yet
+    assert ordinary_chip_rates(events, 0, FIRST_HALF, calendar(set()), 4) == {}  # no FPL counts
+
+
+def test_a_held_chip_has_its_ordinary_chance_outside_chip_worthy_weeks() -> None:
+    cal, ordinary = calendar({8, 12, 16}), {"3xc": 0.05, "bboost": 0.02}
+    # GW7 (2026/27): an ordinary week. The rival held Triple Captain; D30 alone said 0%.
+    assert chip_probabilities(7, {"3xc"}, FIRST_HALF, cal, ordinary) == {"3xc": 0.05}
+    assert chip_probabilities(7, {"3xc", "bboost"}, FIRST_HALF, cal, ordinary) == ordinary
+    assert chip_probabilities(7, set(), FIRST_HALF, cal, ordinary) == {}  # nothing held
+    # Chip-worthy weeks keep D30's rule.
+    assert chip_probabilities(8, {"3xc"}, FIRST_HALF, cal, ordinary)["3xc"] == pytest.approx(
+        CHIP_FLOOR
+    )
+    assert chip_probabilities(7, {"3xc"}, FIRST_HALF, cal, {"3xc": 0.0}) == {}
 
 
 # --- scoring the opponent ------------------------------------------------------------------------

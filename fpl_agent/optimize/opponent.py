@@ -23,7 +23,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from fpl_agent.data.calendar import Calendar
-from fpl_agent.data.models import ChipDefinition, EntryPicks, Player, PositionCode
+from fpl_agent.data.models import ChipDefinition, EntryPicks, Event, Player, PositionCode
 from fpl_agent.model.points import PointsSamples
 from fpl_agent.optimize.rules import Limits, Lineup, chip_window
 from fpl_agent.optimize.scoring import SquadSims, score_lineup
@@ -149,19 +149,63 @@ def fit_captain(
 # --- chips ---------------------------------------------------------------------------------------
 
 
+def chip_worthy(gw: int, window: ChipDefinition, calendar: Calendar) -> bool:
+    """A double gameweek, or one of the last FORFEIT_WEEKS of the chip's window."""
+    if gw > window.stop_event - FORFEIT_WEEKS:
+        return True
+    return gw in calendar.gameweeks and calendar.get(gw).is_double
+
+
+def ordinary_chip_rates(
+    events: Sequence[Event],
+    total_players: int,
+    definitions: Sequence[ChipDefinition],
+    calendar: Calendar,
+    event: int,
+) -> dict[str, float]:
+    """For each scoring chip: how often a manager still holding it played it in an ORDINARY week
+    (not chip-worthy) of its current window so far, FPL-wide (D44). Each finished week's rate is
+    its plays over the managers still holding the chip (all managers minus earlier plays in the
+    window); the result is the average over those weeks. GW1-7 of 2025/26's first window: Triple
+    Captain 0.8-16%, Bench Boost 1-7% a week. Empty when there's nothing to go on (the window's
+    first week; seasons rebuilt without FPL's chip counts)."""
+    out: dict[str, float] = {}
+    if total_players <= 0:
+        return out
+    for name in SCORING_CHIPS:
+        window = chip_window(name, event, definitions)
+        if window is None:
+            continue
+        played_before, rates = 0, []
+        for e in sorted(events, key=lambda e: e.id):
+            if not (window.start_event <= e.id < event and e.finished):
+                continue
+            plays = sum(c.num_played for c in e.chip_plays if c.chip_name == name)
+            holders = total_players - played_before
+            if holders > 0 and not chip_worthy(e.id, window, calendar):
+                rates.append(plays / holders)
+            played_before += plays
+        if rates:
+            out[name] = sum(rates) / len(rates)
+    return out
+
+
 def chip_probabilities(
     event: int,
     chips_remaining: Iterable[str],
     definitions: Sequence[ChipDefinition],
     calendar: Calendar,
+    ordinary: Mapping[str, float] | None = None,
 ) -> dict[str, float]:
     """P(they play each scoring chip this gameweek).
 
-    A held Triple Captain / Bench Boost is only a threat in a "chip-worthy" gameweek: a double
+    A held Triple Captain / Bench Boost is a big threat in a "chip-worthy" gameweek: a double
     gameweek, or one of the last FORFEIT_WEEKS of the chip's window (use it or lose it). Someone
     holding a chip spreads it over the chip-worthy weeks left, so the chance is 1 / (those weeks,
-    this one included), kept between CHIP_FLOOR and CHIP_CAP: it rises as the window closes. One
-    chip per gameweek, so the chances together are capped too.
+    this one included), kept between CHIP_FLOOR and CHIP_CAP: it rises as the window closes.
+    In any other week it's a small chance, `ordinary` (D44: how often managers still holding the
+    chip played it in ordinary weeks this window, FPL-wide); without it, none (D30's original
+    rule, kept for rebuilt past seasons). One chip per gameweek, so the chances are capped too.
     """
     out: dict[str, float] = {}
     for name in SCORING_CHIPS:
@@ -169,13 +213,12 @@ def chip_probabilities(
         if name not in chips_remaining or window is None:
             continue
         worthy = [
-            gw
-            for gw in range(event, window.stop_event + 1)
-            if gw > window.stop_event - FORFEIT_WEEKS
-            or (gw in calendar.gameweeks and calendar.get(gw).is_double)
+            gw for gw in range(event, window.stop_event + 1) if chip_worthy(gw, window, calendar)
         ]
         if event in worthy:
             out[name] = min(CHIP_CAP, max(CHIP_FLOOR, 1 / len(worthy)))
+        elif ordinary and ordinary.get(name, 0.0) > 0:
+            out[name] = min(CHIP_CAP, ordinary[name])
     total = sum(out.values())
     if total > CHIP_CAP:
         out = {k: v * CHIP_CAP / total for k, v in out.items()}

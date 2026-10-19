@@ -68,18 +68,18 @@ def find_opponent(matches: list[H2HMatch], my_entry: int) -> Opponent | None:
 def chips_remaining(
     definitions: list[ChipDefinition], played: list[ChipPlay], event: int
 ) -> frozenset[str]:
-    """Chips valid in `event` that haven't been played inside the same window (rule 3).
+    """Chips valid in `event` that weren't played earlier in the same window (rule 3): what they
+    held going into `event`.
 
     Each chip exists once per half (GW1-19, GW20-38); playing a wildcard in GW5 uses up the
-    first-half wildcard only.
+    first-half wildcard only. A play IN `event` itself doesn't count: live it isn't visible before
+    the deadline anyway, and a replay of a past week must not see it (D44).
     """
     remaining = set()
     for chip in definitions:
         if not chip.start_event <= event <= chip.stop_event:
             continue
-        used = any(
-            p.name == chip.name and chip.start_event <= p.event <= chip.stop_event for p in played
-        )
+        used = any(p.name == chip.name and chip.start_event <= p.event < event for p in played)
         if not used:
             remaining.add(chip.name)
     return frozenset(remaining)

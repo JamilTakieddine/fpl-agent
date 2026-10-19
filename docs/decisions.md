@@ -2157,6 +2157,55 @@ schedule.
 
 ---
 
+## D44. An opponent may play Triple Captain / Bench Boost in any week they still hold it
+
+*2026-10-19. Approved: the user granted the CLAUDE.md change ("you can make the next change that needs my input").*
+
+**Context.**
+- D30 (and CLAUDE.md) let an opponent play Triple Captain or Bench Boost only in a double gameweek or the last 2
+  weeks before the chip expires. In any other week the chance was **0%**.
+- In GW7 (an ordinary week) the opponent played Triple Captain on Haaland: +13. The agent won 81–74 anyway.
+- FPL publishes every gameweek's chip plays (`events[].chip_plays`, with `total_players`). In 2025/26's GW1–7, all
+  ordinary weeks, Triple Captain was played by 0.8–16% of all managers a week (spikes in GW3 and GW7, weeks with a
+  standout captain), and Bench Boost by 1–7%. So 0% is wrong.
+
+**Decision.**
+- **In any week that isn't chip-worthy,** a held chip gets a small chance: the average, over this window's finished
+  ordinary weeks, of that week's plays divided by the managers still holding the chip (`ordinary_chip_rates`). It's
+  computed on every run from bootstrap-static, which the agent already fetches. So there's no new request and no
+  invented constant, and it updates itself as the season goes on.
+- **Chip-worthy weeks keep D30's 30–80% rule.**
+- **Before GW7:** Triple Captain 4.8%, Bench Boost 2.7%.
+- **Where it applies:** only the live agent passes these rates. Seasons rebuilt for back-tests have no FPL chip
+  counts, so they keep D30's behaviour (D35's results stay reproducible).
+- **A related fix:** `chips_remaining` now counts only plays *before* the week being decided ("what they held going
+  in"). Live this changes nothing, because a current-week chip isn't visible before the deadline. A replay of a past
+  week no longer sees the answer: the first GW7 replay showed no Triple Captain chance because today's history
+  already had it played.
+
+**Alternatives rejected.**
+- *A fixed 5–10%:* a guess that goes stale.
+- *The league's own chip history:* about a dozen managers is too small a sample.
+- *Predicting spike weeks* (Triple Captain jumps when one captain stands out): FPL publishes a week's chip counts only
+  after the deadline. A model of "how dominant is the top captain this week" is possible, but premature on this
+  evidence.
+
+**Honest size of the effect.**
+- Replaying GW7's save with this change (point in time, nothing sent): the opponent line reads "Triple Captain 5%,
+  Bench Boost 3%". Your P(win) went from 72.9% to 71.9%.
+- The lineup, captain and the agent's own Triple Captain (D43) were unchanged.
+- It makes the win chances more honest. It rarely changes a decision, because the model can't see a spike week coming.
+
+**Evidence.** Tests: rates are plays over the managers still holding the chip; chip-worthy weeks and unfinished weeks
+are skipped; no data gives no rate; ordinary-week chances; and a chip played in the decided week still counts as held
+going in. All 417 tests pass.
+
+**Consequences.** CLAUDE.md's opponent rule is updated (with permission). At GW10–11 (Q6), check whether the league's
+managers play chips in ordinary weeks more often than FPL-wide. Active H2H rivals plausibly do, since the FPL-wide
+base includes inactive teams.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2253,7 +2302,7 @@ trusted. With simulated gameweeks this is one parameter: maximize P(my points �
 instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
 win probability each buffer size costs.
 
-**Q6. Do the opponent model's assumptions hold as the season goes on?** *(D30, 2026-09-30.)*
+**Q6. Do the opponent model's assumptions hold as the season goes on?** *(D30, 2026-09-30.)* *Chips in ordinary weeks: changed in D44 (FPL-wide rate); compare the league's own rate at GW10–11.*
 Starting values: captain habit weight 0.85 / temperature 1.0, AVERAGE scale 0.9, chip chance 30–80%, and habit
 scaled by availability.
 - *Captain spread*: re-run `python scripts/fit_opponent.py` every ~5 gameweeks. Each gameweek adds 10 decisions.
