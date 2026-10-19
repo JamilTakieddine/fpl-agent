@@ -3,7 +3,7 @@
 - check: 24 hours before the deadline (token refresh proves the login still works, snapshots
   are recorded; an email only if something needs you, while there's time to fix it);
 - save: 60 minutes before (the lineup is saved; the summary email);
-- final: 15 minutes before (latest news; saves again only if the pick changed).
+- final: 15 minutes before (latest news; re-saves the lineup, the same one if nothing changed).
 If the final run fails, the save run's lineup stands: never miss a deadline (goal 1).
 Times come from FPL's deadline_time (CLAUDE.md: never derived from kickoffs). After every run,
 each Cloud Scheduler job is pointed at its next time, so the chain survives a failed run.

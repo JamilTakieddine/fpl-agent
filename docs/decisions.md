@@ -2082,9 +2082,9 @@ strategy to existing rules, so a change reaches them.
   and exited 1. The trigger was then resumed and the test's "already emailed" record deleted, so a real pause
   still alerts.
 
-**Not yet proven:** a live save run writing its record. Only a live save writes it, and nothing was sent to FPL to
-test it. It's unit-tested; check that `runs/saved_gw07.json` exists after the GW7 save run (Sat 17 Oct, 09:00 UTC).
-If it were missing, the cost is a false urgent email at 09:35; the save itself doesn't depend on it.
+**Proven on GW7:** the save run on Sat 17 Oct wrote `runs/saved_gw07.json` (`"verified": true`) at 09:02 UTC.
+The watchdog's 09:05 pass skipped (a run in progress) and its 09:35 pass found nothing wrong. This was the one part
+that only a live save could prove.
 
 **Alternatives rejected.**
 - *A Monitoring metric-absence alert:* absence windows are about a day, and deadlines are a week apart.
@@ -2099,6 +2099,61 @@ If it were missing, the cost is a false urgent email at 09:35; the save itself d
 - Four scheduler triggers, about $0.10 a month for the fourth; about 1,440 short runs a month, within Cloud Run's
   free tier.
 - To stop the agent on purpose, pause all four triggers. Pausing only the gameweek ones gets you urgent emails.
+
+---
+
+## D43. Team chips get an exact check whenever the plan isn't saving them for a later week
+
+*2026-10-19. Approved: fix before GW8 the Triple Captain that GW7's own rule would have played.*
+
+**What happened (GW7).**
+- The 5-week plan put a Wildcard in GW7. The exact check rejected it (+11.0 against 15 to keep).
+- Triple Captain on Haaland was +8.1 expected against a keep-value of 7.5, so by D39's rule it should have been
+  played. Nothing checked it.
+- **The cause:** `decide_team_chip` only checked the chip the plan played *this* week. The plan has one chip slot per
+  week, and the Wildcard had taken it. Once the Wildcard was rejected, nothing went back to the other chips.
+- **The cost:** Haaland scored 13. The agent won 81–74 anyway; Triple Captain would have made it 94–74.
+- The same blind spot exists when the plan's Bench Boost is rejected: Triple Captain goes unchecked.
+
+**Decision.** Each week, a team chip (Triple Captain, Bench Boost) gets the exact check, on the lineup being saved,
+when:
+- the plan plays it this week (as before); or
+- it's playable this week, has a keep-value, and the plan doesn't use it in any later week of its horizon. Its
+  alternative is then keeping it beyond the horizon, which is exactly what the keep-value prices. So the check is the
+  plan's own trade-off, made with the exact simulations ("the optimizer proposes, the exact simulations decide",
+  D39).
+
+Two cases are deliberately left alone:
+- **A chip the plan saves for a later week of the horizon** (a double, say). Playing it now could waste the better
+  week the plan found.
+- **A failed planner** (no plan). No team chip, as before: without the plan, a better week ahead can't be ruled out.
+
+One chip a week: if more than one is worth playing, the one that beats its keep-value by the most. The last-chance
+rule (D40) is unchanged. The season back-test uses the same function and now passes it the plan's whole chip
+schedule.
+
+**Alternatives rejected.**
+- *Re-solving the plan without the rejected chip:* about a minute more per save run, for the same answer in a GW7-like
+  week.
+- *Checking every team chip every week against its keep-value, even one the plan saves for later:* it would spend
+  chips on ordinary weeks the plan had good reason to skip.
+
+**How it was proven.**
+- **The rule's cases:** 7 new tests (`tests/test_team_chip.py`), including GW7 itself, a rejected Bench Boost, a chip
+  saved for later, one chip a week, unplayable chips and a failed planner. With the old rule put back, 5 of them fail.
+- **Saturday's real decision:** the GW7 save run was replayed through `run_gameweek` with the new code, using only
+  what was known at 09:00 UTC (the GW6-style rebuild in D41, nothing sent).
+  - It kept the Wildcard (+10.7 against 15) and then printed "Triple Captain this week (not in the plan's weeks):
+    +8.1 xPts exactly; keeping it is worth 7.5: PLAY IT". The recorded lineup save carried `"chip": "3xc"`.
+  - Bench Boost wasn't checked, because that replay's plan saved it for a later week.
+  - The replay's third transfer differed from Saturday's (a time-limited plan and slightly different saved news): a
+    reminder that close calls vary from run to run.
+
+**Consequences.**
+- Team chips will be played somewhat more often: whenever the exact gain beats the keep-value and the plan has no
+  better week in view. Q10 (are the keep-values right?) matters more now. Review it at GW10–11.
+- Docs corrected in the same change: the final run always re-saves the lineup (the same one if nothing changed). The
+  docs had said it saves only when the pick changes.
 
 ---
 
@@ -2247,7 +2302,7 @@ Recommendation:
   loss, but no threshold beat the managers. Decide at GW10–11, on fair weeks, whether the autonomous agent should
   only change the saved lineup when the gain clears such a threshold.
 
-**Q10. Are the chips' keep-values right?** *(D39, 2026-10-05.)* Bench Boost and Triple Captain are 1.25 × a typical
+**Q10. Are the chips' keep-values right?** *(D39, 2026-10-05.)* *Now also the bar for chips the plan doesn't schedule (D43).* Bench Boost and Triple Captain are 1.25 × a typical
 week for the squad; Wildcard is 15 and Free Hit 12, as starting points. Too low, and the agent plays chips early on
 ordinary weeks. Too high, and it saves them until GW15–19, when keeping them is worth nothing and they're used
 anyway.

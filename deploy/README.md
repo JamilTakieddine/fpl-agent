@@ -6,7 +6,7 @@ The agent runs as a Cloud Run job, three times per gameweek (D36):
 |---|---|---|
 | `check` | 24 h before the deadline | Refreshes the FPL login (proving it works), records flag/odds snapshots. Emails only if something needs you. |
 | `save` | 60 min before | Picks and **saves** the lineup, emails the summary. |
-| `final` | 15 min before | Re-runs with the latest news; saves and emails only if the pick changed or something failed. |
+| `final` | 15 min before | Re-runs with the latest news and re-saves the lineup (the same one if nothing changed); emails only if the pick changed or something failed. |
 
 After every run the job points the three Cloud Scheduler jobs at the next deadline (read from FPL).
 

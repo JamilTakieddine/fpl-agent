@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TextIO
@@ -277,7 +277,7 @@ def run_gameweek(
 
     team_chip = None
     if advice is not None and transfer_chip_name is None:
-        team_chip = decide_team_chip(say, advice, best, mine, positions, limits)
+        team_chip = decide_team_chip(say, advice, best, mine, positions, limits, playable)
     play_chip = team_chip if make_transfers else None  # chips, like transfers: the save run only
     say()
     saved, save_error = None, None
@@ -570,21 +570,41 @@ def decide_team_chip(
     sims: Any,
     positions: Mapping[int, PositionCode],
     limits: Limits,
+    playable: Collection[str],
 ) -> str | None:
-    """If the plan plays Bench Boost or Triple Captain THIS week, check it exactly on the lineup
-    being saved: it must add more than keeping the chip is worth."""
+    """Bench Boost or Triple Captain THIS week, checked exactly on the lineup being saved: it must
+    add more than keeping the chip is worth. A chip is checked when (D43):
+    - the plan plays it this week; or
+    - the plan doesn't use it anywhere in its horizon, so its alternative is keeping it beyond the
+      horizon, which is what the keep-value prices. (GW7: the plan gave the week's one chip slot
+      to a Wildcard that the exact check then rejected, and nothing checked Triple Captain at
+      +8.1 against 7.5 to keep. The same holds when the plan's Bench Boost is rejected: Triple
+      Captain still gets its check.)
+    A chip the plan saves for a later week of the horizon (a double, say) is left for that week.
+    No plan (the planner failed): no team chip, as before. One chip a week: if more than one is
+    worth playing, the one that beats its keep-value by the most."""
     multi = advice.multi
-    chip = multi.chips[0] if multi is not None and multi.chips else None
-    if chip not in TEAM_CHIPS or chip is None:
+    if multi is None or not multi.chips:
         return None
+    planned_now, planned_later = multi.chips[0], set(multi.chips[1:])
+    candidates = [
+        c
+        for c in TEAM_CHIPS
+        if c == planned_now
+        or (c in playable and c in advice.chip_values and c not in planned_later)
+    ]
     plain = float(score_lineup(sims, lineup, positions, limits).mean())
-    boosted = float(score_lineup(sims, lineup, positions, limits, chip).mean())
-    needed = advice.chip_values.get(chip, 0.0)
-    gain = boosted - plain
-    worth = gain >= needed or (chip in advice.last_chance and gain >= 0)
-    verdict = "PLAY IT" if worth else "keep it"
-    say(
-        f"\n{CHIP_LABELS[chip]} this week: {boosted - plain:+.1f} xPts exactly; "
-        f"keeping it is worth {needed:.1f}: {verdict}."
-    )
-    return chip if worth else None
+    best: tuple[float, str] | None = None
+    for chip in candidates:
+        boosted = float(score_lineup(sims, lineup, positions, limits, chip).mean())
+        needed = advice.chip_values.get(chip, 0.0)
+        gain = boosted - plain
+        worth = gain >= needed or (chip in advice.last_chance and gain >= 0)
+        why = "" if chip == planned_now else " (not in the plan's weeks)"
+        say(
+            f"\n{CHIP_LABELS[chip]} this week{why}: {gain:+.1f} xPts exactly; "
+            f"keeping it is worth {needed:.1f}: {'PLAY IT' if worth else 'keep it'}."
+        )
+        if worth and (best is None or gain - needed > best[0]):
+            best = (gain - needed, chip)
+    return best[1] if best else None

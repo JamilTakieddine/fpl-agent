@@ -9,8 +9,8 @@ next times, so one failed run can't break the chain:
 - save (60 min before): makes the planned transfers (free ones only unless FPL_ALLOW_HITS=1,
   D37), then picks and saves the lineup for the new squad (live when FPL_LIVE=1); emails the
   full summary;
-- final (15 min before): runs again with the latest news, saves only if the pick changed; emails
-  only then, or on a failure.
+- final (15 min before): runs again with the latest news and re-saves the lineup (the same one
+  if nothing changed); emails only if the pick changed, or on a failure.
 Any error emails you before the job exits non-zero. A save run that saved the lineup leaves a
 record in the bucket for the watchdog (D42): every 30 minutes, on its own fixed trigger, it checks
 the three triggers will fire and that the save run happened (fpl_agent/cloud/watchdog.py). It

@@ -58,7 +58,7 @@ from fpl_agent.optimize.transfers import (
     TransferPlan,
     recommend_transfers,
 )
-from fpl_agent.submit import TRANSFER_CHIPS
+from fpl_agent.submit import TEAM_CHIPS, TRANSFER_CHIPS
 from fpl_agent.validation.backtest import BACKTEST_SIMS, VALIDATION_DIR
 from fpl_agent.validation.pointintime import Season, build_case, load_season
 
@@ -109,6 +109,8 @@ class Decision:
     chip: str | None = None  # wildcard / freehit played
     free_hit: tuple[int, ...] | None = None
     team_chip: str | None = None  # bboost / 3xc the plan wants this week
+    plan_chips: tuple[str | None, ...] = ()  # the plan's chip per week (for the exact check, D43)
+    playable: frozenset[str] = frozenset()  # team chips whose window includes this week
     chip_values: dict[str, float] = field(default_factory=dict)
     last_chance: frozenset[str] = frozenset()
     note: str = ""  # the agent's chip reasoning this week (logged)
@@ -226,6 +228,10 @@ def decide(
     return Decision(
         plan.best.moves,
         team_chip=team,
+        plan_chips=tuple(multi.chips) if multi is not None else (),
+        playable=frozenset(
+            name for name, first, last in state.chips if first <= gw <= last and name in TEAM_CHIPS
+        ),
         chip_values=chip_values,
         last_chance=last_chance,
         note=note,
@@ -262,13 +268,13 @@ def play_week(
         state.squad = [sold.get(p, p) for p in state.squad]
         playing = state.squad
     lineup, sims = max_expected_lineup(weeks[0], playing, positions, limits)
-    if d.team_chip is not None:  # the same exact check as live (agent.decide_team_chip)
-        stub = Plan((), (), 0.0, True, 0.0, 0, chips=(d.team_chip,))
+    if d.plan_chips:  # the same exact check as live (agent.decide_team_chip, D43)
+        stub = Plan((), (), 0.0, True, 0.0, 0, chips=d.plan_chips)
         empty = TransferPlan(Option((), (), 0, 0, (), 0.0, 0.0), [], state.free, 0)
         advice = Advice(empty, {}, stub, d.chip_values, list(weeks), [], d.last_chance)
         quiet = io.StringIO()
         chip = decide_team_chip(
-            lambda *a: print(*a, file=quiet), advice, lineup, sims, positions, limits
+            lambda *a: print(*a, file=quiet), advice, lineup, sims, positions, limits, d.playable
         )
         d = replace(d, note=f"{d.note} {quiet.getvalue().strip()}")
     pts = {p: v[0] for p, v in real.items()}
