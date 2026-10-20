@@ -2,8 +2,11 @@
 
 The refresh token rotates on every use, and sending a replaced one after a short grace period
 revokes the whole login (reuse detection, D12). So:
-- save = add a new secret version, THEN disable every older enabled version, so nothing (a
-  restored backup, a local file, a second process) can ever read a stale token;
+- save = add a new secret version, THEN destroy every older version, so nothing (a restored
+  backup, a local file, a second process) can ever read a stale token. Destroyed, not just
+  disabled: Secret Manager bills disabled versions like enabled ones, and with a new version
+  every few days the bill grew without limit (D45). A stale token is poison anyway (D12), so
+  there's nothing worth keeping;
 - a save that fails marks the secret `needs-relogin`: the next run stops and emails instead of
   refreshing with the old, now-poisoned token (Q2). This run still holds a valid access token
   for an hour, so it carries on with the gameweek;
@@ -27,8 +30,8 @@ NEEDS_RELOGIN = "needs-relogin"
 class SecretVersions(Protocol):
     def latest(self) -> bytes: ...
     def add(self, data: bytes) -> str: ...  # returns the new version's name
-    def enabled(self) -> list[str]: ...  # names of the enabled versions
-    def disable(self, name: str) -> None: ...
+    def active(self) -> list[str]: ...  # names of the versions not yet destroyed
+    def destroy(self, name: str) -> None: ...
     def labels(self) -> dict[str, str]: ...
     def set_label(self, key: str, value: str | None) -> None: ...  # None removes it
 
@@ -48,9 +51,9 @@ class SecretManagerTokenStore:
         except Exception:
             self._mark_needs_relogin()
             raise
-        for name in self.versions.enabled():
+        for name in self.versions.active():  # older ones, enabled or disabled (D45)
             if name != new:
-                self.versions.disable(name)
+                self.versions.destroy(name)
 
     def clear_relogin(self) -> None:
         """After a fresh login has been uploaded."""
@@ -85,13 +88,14 @@ class GoogleSecretVersions:
         name: str = resp.name
         return name
 
-    def enabled(self) -> list[str]:
-        request = self.sm.ListSecretVersionsRequest(parent=self.secret, filter="state:ENABLED")
-        versions = self.client.list_secret_versions(request=request)
-        return [v.name for v in versions]
+    def active(self) -> list[str]:
+        """Enabled and disabled versions: both are billed, only destroyed ones are free."""
+        live = (self.sm.SecretVersion.State.ENABLED, self.sm.SecretVersion.State.DISABLED)
+        versions = self.client.list_secret_versions(parent=self.secret)
+        return [v.name for v in versions if v.state in live]
 
-    def disable(self, name: str) -> None:
-        self.client.disable_secret_version(name=name)
+    def destroy(self, name: str) -> None:
+        self.client.destroy_secret_version(name=name)
 
     def labels(self) -> dict[str, str]:
         return dict(self.client.get_secret(name=self.secret).labels)

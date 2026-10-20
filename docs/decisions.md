@@ -1651,7 +1651,7 @@ writes the lineup itself.*
 |---|---|---|
 | **Cloud Run job** `fpl-agent` (2 vCPU, 4 GiB, 15 min, 1 task, no retries) | Runs the container on demand. It pays only while running and scales to zero. A *job* (run to completion) fits a batch task. | *Cloud Run service*: an always-on web server we'd have to call. *Compute Engine VM*: pays 24/7, and OS patching is ours. *Cloud Functions*: 9-minute and memory limits are tight for a 2 GB simulation. *GitHub Actions cron*: free, but its schedules can run late by many minutes, and it would need the FPL token as a repo secret. |
 | **Cloud Scheduler** (3 jobs) | Triggers the job at exact times. It calls the Cloud Run "run" API with OAuth as the `fpl-agent-scheduler` account. | *A sleep loop on a VM*: it pays 24/7. *Fixed cron polling FPL every 15 min*: wasted runs and FPL requests. *Workflows or Pub/Sub*: more pieces for no gain. |
-| **Secret Manager** (`fpl-tokens`, `fpl-email`, `fpl-email-app-password`) | Encrypted, versioned, access-controlled secrets. Versions make the "one live token" rule enforceable (disable old ones). Cloud Run injects the email secrets as environment variables. | *Environment variables baked into the job*: visible to anyone who can view the job, and unversioned. *A file in the bucket*: no versions to disable, weaker access control. |
+| **Secret Manager** (`fpl-tokens`, `fpl-email`, `fpl-email-app-password`) | Encrypted, versioned, access-controlled secrets. Versions make the "one live token" rule enforceable (disable old ones; destroyed since D45, which also stops them being billed). Cloud Run injects the email secrets as environment variables. | *Environment variables baked into the job*: visible to anyone who can view the job, and unversioned. *A file in the bucket*: no versions to disable, weaker access control. |
 | **Cloud Storage bucket** `fpl-agent-jt-fpl-agent-state` | The job's memory between runs: flag snapshots, saved odds, and the run lock (create-only-if-absent is atomic on the server). | *Firestore*: a database for a handful of JSON files. *Container disk*: wiped after every run. |
 | **Artifact Registry + Cloud Build** | Cloud Build turns the source into an image (from the Dockerfile) and stores it in Artifact Registry. Created automatically by `gcloud run jobs deploy --source`. | *Building locally with Docker and pushing*: needs Docker Desktop on the Mac, and the image would be built for Apple silicon rather than the cloud's x86. |
 | **Two service accounts** | `fpl-agent-runner` (the job's identity): admin on the token secret only, read on the email secrets, objects in its bucket, Scheduler admin to re-point its jobs. `fpl-agent-scheduler`: may only trigger the job. *(Corrected in D41: `roles/run.invoker` lacked the override permission the triggers need, and GW6 was missed.)* | *The default compute account*: broad project rights. A leaked or buggy job could touch everything. |
@@ -2206,6 +2206,61 @@ base includes inactive teams.
 
 ---
 
+## D45. Nothing in the cloud grows with use: destroy old tokens, keep 3 images, lock the bucket
+
+*2026-10-20. Approved: all three, after the user asked whether anyone could run up a bill.*
+
+**Can anyone else run up a bill on the project? No (checked in the live project).**
+- Only the owner, the agent's two service accounts and Google's own service agents have roles.
+  There are no `allUsers` / `allAuthenticatedUsers` bindings.
+- There's no public endpoint: it's a Cloud Run *job*, startable only by the scheduler's account
+  (D41).
+- No credential exists that could leak: zero user-managed service-account keys and no API keys.
+- The bucket has uniform access and no public bindings.
+- People reusing the public repo deploy into **their own** project, read from their `.env`, and
+  can't reach this one.
+
+**What did grow with the owner's own use.**
+- **Replaced login tokens:**
+  - Each refresh added a Secret Manager version and *disabled* the old one (D36). Google bills
+    **disabled versions like enabled ones**; only destroyed versions are free, after 6 free
+    ([pricing](https://cloud.google.com/secret-manager/pricing)).
+  - That was 11 versions after six weeks, adding about 10 a month, on course to pass the $5 budget
+    by spring and still climbing.
+- **Deploy images:** every deploy pushes a new one. That was 657 MB against 0.5 GB free, rising.
+
+**Decision.**
+1. **Superseded token versions are destroyed, not disabled.** Every version except the new one,
+   enabled or disabled, is destroyed (`fpl_agent/cloud/tokens.py`). A stale refresh token is
+   poison anyway (replaying it revokes the login, D12), so destroying it is stricter than
+   disabling and loses nothing.
+2. **The deploy repository keeps the 3 newest images** (an Artifact Registry clean-up policy in
+   `deploy.sh`). The job always runs the newest.
+3. **The bucket's public access prevention is enforced** (`deploy.sh`), so it can't be made
+   public by a mistaken permission change.
+
+**How it was proven.**
+- **Tests:** a save destroys every older version, including ones disabled before this change.
+  A failed save destroys nothing.
+- **The live clean-up:** the deploy's scheduler-started check run refreshed the login (new version
+  12). Version states went from 10 disabled and 1 enabled to 11 destroyed and 1 enabled, and the
+  audit log shows `fpl-agent-runner`, the agent's own identity, did the destroying. Secret Manager
+  now holds 3 live versions across all secrets, inside the free 6.
+- **The bucket** reads `public_access_prevention: enforced`.
+- **The image policy** is set (not a dry run). Google applies it about daily, so the repository
+  shrinking under 0.5 GB is still to be confirmed.
+
+**Steady state:** about $0.10–0.15 a month (the watchdog's scheduler job), with nothing growing.
+Cloud Run runs about 9 hours a month, about 37% of its free allowance. The $5 budget alert only
+emails; it doesn't cap spending.
+
+**Alternatives rejected.**
+- *Keep disabling and destroy in a separate clean-up job:* another moving part, for the same result.
+- *A hard spending cap (a budget that disables billing):* it would also stop the agent before a
+  deadline. With nothing growing, the alert is enough.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2259,7 +2314,7 @@ error either way. Then do one cheap test to learn which actions trigger it.
   exists and that nothing ever sends an older one:
   - Only one process refreshes at a time: a lock, or a single Cloud Run job with no parallel runs (D5).
   - Never restore a token backup. After each successful save to Secret Manager, **disable the older secret
-    versions** so nothing can read a stale one.
+    versions** so nothing can read a stale one. *(Since D45 they're destroyed, which also stops them being billed.)*
   - `phase0_refresh.py` stays disabled (D8), and `phase1_reuse_detection.py` carries a warning.
 - Still open: whether logging out on the website, changing the password, or logging in elsewhere revokes the
   agent's session. The day-before check run catches all of these anyway.

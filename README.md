@@ -43,7 +43,9 @@ anything.
    A watchdog checks every 30 minutes that the runs will fire. Alerts email you if anything fails.
 
 Every design decision, the alternatives considered and why they lost, is in
-[`docs/decisions.md`](docs/decisions.md) (44 of them, so far).
+[`docs/decisions.md`](docs/decisions.md) (45 of them, so far). The maths behind it (Poisson, Monte
+Carlo, shrinkage, maximum likelihood, mixed-integer programming and the rest), with where each
+idea is used and why, is in [`docs/math.md`](docs/math.md).
 
 ## Run it for your own team
 

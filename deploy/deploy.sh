@@ -27,6 +27,8 @@ gcloud services enable run.googleapis.com cloudscheduler.googleapis.com \
 say "Bucket gs://${BUCKET} (snapshots, saved odds, the run lock)"
 gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 ||
   gcloud storage buckets create "gs://${BUCKET}" --location="$REGION" --uniform-bucket-level-access
+# It can never be made public, even by a mistaken permission change (D45).
+gcloud storage buckets update "gs://${BUCKET}" --public-access-prevention >/dev/null
 
 say "Secrets"
 ensure_secret() { gcloud secrets describe "$1" >/dev/null 2>&1 || gcloud secrets create "$1" --replication-policy=automatic; }
@@ -53,7 +55,7 @@ say "Service accounts and permissions (least privilege)"
 ensure_sa() { gcloud iam service-accounts describe "$1@${PROJECT}.iam.gserviceaccount.com" >/dev/null 2>&1 || gcloud iam service-accounts create "$1" --display-name="$2"; }
 ensure_sa fpl-agent-runner "FPL agent job"
 ensure_sa fpl-agent-scheduler "FPL agent scheduler trigger"
-# The token secret: read, add versions, disable old ones, set the needs-relogin label.
+# The token secret: read, add versions, destroy old ones (D45), set the needs-relogin label.
 gcloud secrets add-iam-policy-binding fpl-tokens --member="serviceAccount:${RUNNER}" --role=roles/secretmanager.admin >/dev/null
 for s in fpl-email fpl-email-app-password; do
   gcloud secrets add-iam-policy-binding "$s" --member="serviceAccount:${RUNNER}" --role=roles/secretmanager.secretAccessor >/dev/null
@@ -76,6 +78,19 @@ gcloud run jobs deploy "$JOB" --source . --region "$REGION" \
   --service-account "$RUNNER" \
   --set-env-vars "FPL_TOKEN_STORE=secret-manager,FPL_GCP_PROJECT=${PROJECT},FPL_BUCKET=${BUCKET},FPL_REGION=${REGION},FPL_LIVE=1,FPL_ENTRY_ID=${FPL_ENTRY_ID},FPL_H2H_LEAGUE_ID=${FPL_H2H_LEAGUE_ID}" \
   --set-secrets "FPL_EMAIL=fpl-email:latest,FPL_EMAIL_APP_PASSWORD=fpl-email-app-password:latest"
+# Every deploy pushes a new image; without a limit they pile up past the 0.5 GB free tier (D45).
+# Keep the 3 newest (the job runs the newest), delete the rest. Google applies this daily.
+POLICY="$(mktemp)"
+cat > "$POLICY" <<'JSON'
+[
+  {"name": "keep-newest-3", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}},
+  {"name": "delete-the-rest", "action": {"type": "Delete"}, "condition": {"tagState": "ANY"}}
+]
+JSON
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy --location "$REGION" \
+  --policy "$POLICY" --no-dry-run >/dev/null
+rm -f "$POLICY"
+
 # The scheduler starts the job WITH an override (--mode), which needs run.jobs.runWithOverrides.
 # roles/run.invoker doesn't include it: every scheduled run got a 403 and GW6 was missed (D41).
 # So a custom role with exactly the two permissions, granted on this job only.

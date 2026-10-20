@@ -37,26 +37,28 @@ def tokens(refresh: str) -> TokenSet:
 
 
 class FakeVersions:
+    """Secret Manager versions: ENABLED, DISABLED (still billed) or DESTROYED (free, unreadable)."""
+
     def __init__(self, fail_add: bool = False) -> None:
-        self.versions: list[tuple[str, bytes, bool]] = []  # name, data, enabled
+        self.versions: list[tuple[str, bytes, str]] = []  # name, data, state
         self.label: dict[str, str] = {}
         self.fail_add = fail_add
 
     def latest(self) -> bytes:
-        return [d for _, d, on in self.versions if on][-1]
+        return [d for _, d, state in self.versions if state == "ENABLED"][-1]
 
     def add(self, data: bytes) -> str:
         if self.fail_add:
             raise RuntimeError("Secret Manager unavailable")
         name = f"v{len(self.versions) + 1}"
-        self.versions.append((name, data, True))
+        self.versions.append((name, data, "ENABLED"))
         return name
 
-    def enabled(self) -> list[str]:
-        return [n for n, _, on in self.versions if on]
+    def active(self) -> list[str]:
+        return [n for n, _, state in self.versions if state != "DESTROYED"]
 
-    def disable(self, name: str) -> None:
-        self.versions = [(n, d, on and n != name) for n, d, on in self.versions]
+    def destroy(self, name: str) -> None:
+        self.versions = [(n, d, "DESTROYED" if n == name else st) for n, d, st in self.versions]
 
     def labels(self) -> dict[str, str]:
         return dict(self.label)
@@ -68,14 +70,22 @@ class FakeVersions:
             self.label[key] = value
 
 
-def test_saving_keeps_exactly_one_enabled_version() -> None:
+def test_saving_keeps_exactly_one_version_and_destroys_the_rest() -> None:
     v = FakeVersions()
     store = SecretManagerTokenStore(v)
     store.save(tokens("r1"))
     store.save(tokens("r2"))
     store.save(tokens("r3"))
-    assert v.enabled() == ["v3"]  # older refresh tokens can never be read again
+    assert v.active() == ["v3"]  # older refresh tokens can never be read again, nor billed (D45)
+    assert [st for _, _, st in v.versions] == ["DESTROYED", "DESTROYED", "ENABLED"]
     assert store.load().refresh_token == "r3"
+
+
+def test_versions_disabled_before_d45_are_destroyed_by_the_next_save() -> None:
+    v = FakeVersions()
+    v.versions = [("v1", b"old", "DISABLED"), ("v2", b"old", "DISABLED"), ("v3", b"x", "ENABLED")]
+    SecretManagerTokenStore(v).save(tokens("r4"))
+    assert v.active() == ["v4"]
 
 
 def test_a_failed_save_flags_needs_relogin_and_the_next_load_stops() -> None:
@@ -88,6 +98,7 @@ def test_a_failed_save_flags_needs_relogin_and_the_next_load_stops() -> None:
     assert v.labels()[NEEDS_RELOGIN] == "true"
     with pytest.raises(AuthError):  # never refresh with the now-stale r1
         store.load()
+    assert v.active() == ["v1"]  # a failed save destroys nothing
     store.clear_relogin()
     assert store.load().refresh_token == "r1"
 
