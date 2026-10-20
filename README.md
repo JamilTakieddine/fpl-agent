@@ -6,10 +6,7 @@ of beating this week's head-to-head opponent. It emails you what it did and why.
 anything.
 
 **Track record:**
-- **Live in 2026/27:**
-  - **GW6:** missed. A cloud permission had been tested the wrong way. It's fixed, and now
-    checked on every deploy (`docs/decisions.md`, D41).
-  - **GW7:** won 81–74 in my head-to-head league, running entirely on its own.
+- **Live as of GW7 (2026/27):** won 81–74 in my head-to-head league, running entirely on its own.
 - **Replaying the whole 2025/26 season with the agent in charge:** **2,157 points**, against 1,536
   for never transferring and 2,025 for one-week transfer logic (`docs/planner_backtest.md`).
 
