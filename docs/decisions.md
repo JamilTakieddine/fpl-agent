@@ -2261,6 +2261,68 @@ emails; it doesn't cap spending.
 
 ---
 
+## D46. A plain-English gameweek email: decisions, chances and reasons, no payloads
+
+*2026-10-20. Approved: the user found the email hard to read ("huge JSONs and payloads, and no structure") and
+confirmed the proposed layout, New York times, and a look-ahead line.*
+
+**What was wrong.** The email was the job's whole technical log:
+- **Raw data:** two JSON payloads full of player IDs (and the team ID).
+- **No summary:** the decisions were buried mid-log.
+- **Solver statistics and jargon:** "191 candidates, 61.8s", "77 of 550 XIs", the buffer table,
+  "xPts", "P(win by 3+)".
+- **The 5-week plan's line contradicted the action:** "GW8 TRIPLE CAPTAIN: roll", while the agent made
+  3 transfers and kept the chip. The exact checks had overruled the plan, but the email never said
+  which one won.
+- **Chips appeared twice.**
+- **In a test run, the lineup was for the squad *before* the transfers,** so it started players the
+  same email said to sell.
+- **Test runs weren't clearly labelled.**
+
+One thing that *looked* wrong was right. Calafiori (C), forecast 5.5, over Haaland (V), 5.7:
+- When Calafiori plays, he's forecast 5.9, against Haaland's 5.7.
+- If he doesn't (8%), the armband passes to Haaland.
+- On the same simulations: 58.1 against 57.9 expected points, and 61.5% against 61.1% to win by 3+.
+
+The email must say why; nothing in the decision needed fixing.
+
+**Decision.**
+- **`run_gameweek` fills a structured `GameweekReport`,** and the pure `fpl_agent/report.py` turns it into:
+  - **a subject:** "FPL GW8: 3 transfers · Calafiori (C) · 65% to win vs Rival FC";
+  - **a body:**
+    - **DECISIONS:** transfers out/in with the bank, captain and vice, chips, lineup and bench;
+    - **YOUR CHANCES:** chance to win against the team as it was, and the forecast scores;
+    - **WHY:** the transfers' expected gain, the captain's reason, and each chip's gain against its
+      keep-value;
+    - **YOUR OPPONENT;**
+    - **LOOKING AHEAD:** next week's free transfers.
+- **Times in the owner's time zone** (`FPL_TIMEZONE`, default UTC; `tzdata` ships the zone database,
+  because slim containers lack it).
+- **No payloads, IDs or solver statistics in the email.** The full technical output stays in the job
+  log, and the email is printed there too.
+- **Failure emails keep the technical log** underneath the summary: that's when details matter. Their
+  subjects keep "FAILED", which the job's exit code relies on.
+- **Test runs (`FPL_LIVE=0`) say "TEST, nothing sent to FPL"** in the subject and body. A test run now
+  applies the planned transfers to a **copy** of the team (`apply_moves`) and picks the lineup for
+  it, so it shows exactly what a live save would leave. That lineup is logged as a dry run without
+  the save checks, which would compare it with the real, unchanged squad. The live path is unchanged.
+
+**Alternatives rejected.**
+- *An LLM writes the email* (CLAUDE.md allows LLMs at the edges for this): deterministic text is
+  testable, free, needs no API key, and can't misstate a number.
+- *An HTML email:* plain text renders the same in every client, with no template machinery.
+- *Attach the full log:* it's already in the job log, and it's what made the email unreadable.
+
+**How it was proven.**
+- **Tests:** 5 new tests covering the subjects (live, test, Wildcard, Triple Captain, final-run
+  update); the body in New York time, with no JSON, IDs or jargon; the roll, captain, chip and
+  no-opponent cases; `apply_moves` (bank, prices, slot, the real team untouched); failures keeping
+  the log.
+- **A mutation check:** putting the log back into normal emails fails a test.
+- **A cloud test run** sent the user the new email, marked TEST.
+
+---
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

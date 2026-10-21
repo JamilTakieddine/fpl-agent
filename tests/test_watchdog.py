@@ -159,7 +159,7 @@ def test_only_a_live_save_leaves_the_saved_record(monkeypatch: pytest.MonkeyPatc
         return RunResult(7, GW7, Lineup((1,), (2,), 1, 1), False, 0.6, saved, None)
 
     client: Any = Client()
-    settings: Any = SimpleNamespace(entry_id=1)
+    settings: Any = SimpleNamespace(entry_id=1, timezone="UTC")
     stores: Any = None  # the snapshot/odds recording is replaced below
     monkeypatch.setattr(run_mod, "record", lambda *a: "recorded")
     for mode, sent, expect in (

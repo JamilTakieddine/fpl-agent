@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import functools
 import time
-from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, TextIO
 
@@ -51,6 +51,7 @@ from fpl_agent.optimize.rules import (
     SquadPlayer,
     chip_playable,
     lineup_violations,
+    next_free_transfers,
 )
 from fpl_agent.optimize.scoring import score_lineup, squad_sims
 from fpl_agent.optimize.transfers import (
@@ -61,11 +62,13 @@ from fpl_agent.optimize.transfers import (
     recommend_transfers,
     squad_values,
 )
+from fpl_agent.report import Captaincy, ChipVerdict, GameweekReport, Transfer
 from fpl_agent.submit import (
     TEAM_CHIPS,
     TRANSFER_CHIPS,
     SubmitResult,
     free_transfers,
+    lineup_payload,
     submit_lineup,
     submit_transfers,
 )
@@ -84,15 +87,29 @@ def current_lineup(team: MyTeam, positions: Mapping[int, PositionCode]) -> Lineu
     )
 
 
+@dataclass(frozen=True)
+class OpponentView:
+    """Who I'm playing: their points in each simulation, and what the email says about them."""
+
+    label: str  # one line for the log
+    name: str
+    captains: tuple[tuple[str, float], ...]  # most likely captains, with chances
+    chips: dict[str, float]  # chance of each scoring chip this week
+    points: NDArray[np.int64]
+
+
 def the_opponent(
     client: FplClient, nxt: NextGameweek, league: int | None, entry: int, limits: Limits
-) -> tuple[str, NDArray[np.int64]]:
+) -> OpponentView:
     """Who I'm playing and their points in each simulation (FPL's average if nobody)."""
     boot, sim = nxt.bootstrap, nxt.sim
     ownership = {p.id: p.selected_by_percent for p in boot.elements}
     snap = load_opponent(client, league, entry, nxt.event) if league is not None else None
     if snap is None or snap.last_picks is None:
-        return "AVERAGE (FPL's overall average score)", average_points(sim.points, ownership)
+        points = average_points(sim.points, ownership)
+        return OpponentView(
+            "AVERAGE (FPL's overall average score)", "FPL's average score", (), {}, points
+        )
     names = {p.id: p.web_name for p in boot.elements}
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
     xp = {int(p): float(e) for p, e in zip(sim.points.player, sim.points.expected(), strict=True)}
@@ -116,7 +133,9 @@ def the_opponent(
     top = sorted(model.captain_probs.items(), key=lambda kv: -kv[1])[:3]
     captains = ", ".join(f"{names[p]} {q:.0%}" for p, q in top)
     chip_note = "".join(f", {CHIP_NAMES[c]} {q:.0%}" for c, q in chips.items())
-    return f"{snap.opponent.team_name} (captain: {captains}{chip_note})", points
+    label = f"{snap.opponent.team_name} (captain: {captains}{chip_note})"
+    likely = tuple((names[p], q) for p, q in top[:2] if q >= 0.05)
+    return OpponentView(label, snap.opponent.team_name, likely, dict(chips), points)
 
 
 def changes(new: Lineup, old: Lineup, names: Mapping[int, str]) -> list[str]:
@@ -148,6 +167,42 @@ class RunResult:
     transfers: SubmitResult | None = None  # set when this run tried to make transfers
     transfer_error: str | None = None
     chip: str | None = None  # a chip this run played (5c)
+    report: GameweekReport | None = None  # the email's facts (D46)
+
+
+def apply_moves(
+    team: MyTeam,
+    moves: Sequence[Move],
+    players: Mapping[int, SquadPlayer],
+    element_types: Mapping[int, int],
+) -> MyTeam:
+    """A COPY of the team with the transfers applied, as FPL would leave it: the bought player
+    takes the sold one's slot at his buying price, and the bank moves by the difference. For
+    test runs (D46), so a test shows the squad a live save run would pick the lineup from."""
+    sold = {m.sell: m.buy for m in moves}
+    bank = team.transfers.bank
+    picks = []
+    for pick in team.picks:
+        buy = sold.get(pick.element)
+        if buy is None:
+            picks.append(pick)
+            continue
+        price = players[buy].price
+        bank += pick.selling_price - price
+        picks.append(
+            pick.model_copy(
+                update={
+                    "element": buy,
+                    "element_type": element_types[buy],
+                    "selling_price": price,
+                    "purchase_price": price,
+                }
+            )
+        )
+    transfers = team.transfers.model_copy(
+        update={"bank": bank, "made": team.transfers.made + len(moves)}
+    )
+    return team.model_copy(update={"picks": picks, "transfers": transfers})
 
 
 def run_gameweek(
@@ -181,8 +236,9 @@ def run_gameweek(
     names = {p.id: p.web_name for p in boot.elements}
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
     limits = Limits.from_bootstrap(boot)
-    label, opponent = the_opponent(client, nxt, settings.h2h_league_id, settings.entry_id, limits)
-    say(f"GW{nxt.event}, deadline {nxt.deadline:%a %d %b %H:%M} UTC, vs {label}")
+    them = the_opponent(client, nxt, settings.h2h_league_id, settings.entry_id, limits)
+    opponent = them.points
+    say(f"GW{nxt.event}, deadline {nxt.deadline:%a %d %b %H:%M} UTC, vs {them.label}")
 
     def best_for(squad_team: MyTeam) -> tuple[Lineup, Any, Recommendation]:
         cur = current_lineup(squad_team, positions)
@@ -190,6 +246,7 @@ def run_gameweek(
         return cur, sims, recommend(sims, positions, limits, opponent)
 
     current, mine, rec = best_for(team)
+    before = summarize(current, score_lineup(mine, current, positions, limits), opponent, BUFFER)
     transfer_result, transfer_error = None, None
     advice = None
     if transfers:
@@ -235,6 +292,20 @@ def run_gameweek(
         if transfer_result is not None and transfer_result.sent:
             team = client.my_team(settings.entry_id)  # the squad as it now stands
             current, mine, rec = best_for(team)
+    tested = False  # a test run that picked the lineup for the squad after the planned transfers
+    if (
+        make_transfers
+        and not live
+        and advice is not None
+        and to_make
+        and transfer_result is not None
+        and not transfer_result.problems
+    ):
+        types = {p.id: p.element_type for p in boot.elements}
+        team = apply_moves(team, to_make, advice.players, types)  # a copy: FPL is untouched
+        current, mine, rec = best_for(team)
+        tested = True
+        say("\nTEST RUN: the lineup below is for the squad after these transfers (not made).")
 
     best = rec.best.lineup
     assert lineup_violations(best, positions, limits) == []  # the rules engine has the last word
@@ -281,29 +352,57 @@ def run_gameweek(
     )
 
     team_chip = None
+    verdicts: list[ChipVerdict] = []
     if advice is not None and transfer_chip_name is None:
-        team_chip = decide_team_chip(say, advice, best, mine, positions, limits, playable)
+        team_chip = decide_team_chip(
+            say, advice, best, mine, positions, limits, playable, verdicts=verdicts
+        )
     play_chip = team_chip if make_transfers else None  # chips, like transfers: the save run only
     say()
     saved, save_error = None, None
     try:
-        saved = submit_lineup(
-            client,
-            settings.entry_id,
-            best,
-            positions,
-            limits,
-            nxt.deadline,
-            datetime.now(UTC),
-            live,
-            log=say,
-            play_chip=play_chip,
-        )
+        if tested:  # the squad it was picked for exists only in this test: nothing to check against
+            saved = SubmitResult(False, lineup_payload(best, chip=play_chip), [])
+            say("DRY RUN: nothing sent (the lineup is for the squad after the planned transfers).")
+        else:
+            saved = submit_lineup(
+                client,
+                settings.entry_id,
+                best,
+                positions,
+                limits,
+                nxt.deadline,
+                datetime.now(UTC),
+                live,
+                log=say,
+                play_chip=play_chip,
+            )
     except requests.RequestException as e:  # never retried: a write could apply twice (D34)
         save_error = f"{type(e).__name__}: {e}"
         say(f"SAVE FAILED ({save_error}). Not retried; check the team on the site.")
 
     say(f"\n{time.perf_counter() - started:.0f}s in total.")
+    report = build_report(
+        nxt=nxt,
+        live=live,
+        them=them,
+        names=names,
+        positions=positions,
+        limits=limits,
+        advice=advice,
+        to_make=to_make if make_transfers else (),
+        chip_move=chip_move,
+        transfer_chip_name=transfer_chip_name,
+        play_chip=play_chip,
+        verdicts=verdicts,
+        team=team,
+        best=best,
+        mine=mine,
+        rec=rec,
+        before=before,
+        playable=playable,
+        update="; ".join(diff) if not make_transfers and diff else None,
+    )
     return RunResult(
         event=nxt.event,
         deadline=nxt.deadline,
@@ -315,6 +414,103 @@ def run_gameweek(
         transfers=transfer_result,
         transfer_error=transfer_error,
         chip=transfer_chip_name or play_chip,
+        report=report,
+    )
+
+
+def build_report(
+    *,
+    nxt: NextGameweek,
+    live: bool,
+    them: OpponentView,
+    names: Mapping[int, str],
+    positions: Mapping[int, PositionCode],
+    limits: Limits,
+    advice: Advice | None,
+    to_make: Sequence[Move],
+    chip_move: ChipMove | None,
+    transfer_chip_name: str | None,
+    play_chip: str | None,
+    verdicts: Sequence[ChipVerdict],
+    team: MyTeam,
+    best: Lineup,
+    mine: Any,
+    rec: Recommendation,
+    before: Choice,
+    playable: Sequence[str],
+    update: str | None,
+) -> GameweekReport:
+    """The email's facts (D46), from what the run decided. `team` is the squad after any
+    transfers (made, or applied to a copy in a test run)."""
+    prices = advice.players if advice is not None else {}
+    sells = {p.id: p.price for p in advice.squad} if advice is not None else {}
+    moved = tuple(
+        Transfer(names[m.sell], names[m.buy], sells.get(m.sell, 0), prices[m.buy].price)
+        for m in to_make
+    )
+    option = advice.plan.best if advice is not None else None
+    gain_horizon = gain_now = None
+    roll_best = None
+    if transfer_chip_name and chip_move is not None:
+        gain_horizon = chip_move.value
+    elif option is not None and option.moves and to_make:
+        gain_horizon, gain_now = option.gain, option.by_week[0] if option.by_week else None
+    elif advice is not None and advice.plan.alternatives:
+        alt = advice.plan.alternatives[0]
+        roll_best = (alt.gain, alt.required)
+    free = advice.plan.free if advice is not None else None
+    used = 0 if transfer_chip_name else len(moved)
+    free_next = (
+        next_free_transfers(free, used, limits, transfer_chip_name) if free is not None else None
+    )
+    checked = {v.chip: v for v in verdicts}
+    if chip_move is not None:
+        checked[chip_move.chip] = ChipVerdict(
+            chip_move.chip, chip_move.worth_it, chip_move.value, chip_move.needed
+        )
+    available = [c for c in CHIP_LABELS if chip_playable(c, nxt.event, team.chips)]
+    if transfer_chip_name and transfer_chip_name not in available:
+        available.append(transfer_chip_name)  # played this run: no longer "available" on FPL
+    chips = tuple(checked.get(c, ChipVerdict(c, c == play_chip)) for c in available)
+    row = {p: i for i, p in enumerate(mine.ids)}
+
+    def stats(p: int) -> tuple[float, float, float]:
+        points, played = mine.points[row[p]], mine.played[row[p]]
+        p_plays = float(played.mean())
+        if_plays = float(points[played].mean()) if played.any() else 0.0
+        return float(points.mean()), p_plays, if_plays
+
+    _, cap_plays, cap_if_plays = stats(best.captain)
+    vice_mean, _, _ = stats(best.vice_captain)
+    return GameweekReport(
+        event=nxt.event,
+        deadline=nxt.deadline,
+        live=live,
+        opponent=them.name,
+        opponent_captains=them.captains,
+        opponent_chip_chance=sum(them.chips.values()),
+        opponent_forecast=float(them.points.mean()),
+        transfers=moved,
+        transfer_chip=transfer_chip_name,
+        team_chip=play_chip,
+        free_transfers=free,
+        hit=option.hit if option is not None and to_make and not transfer_chip_name else 0,
+        bank_after=team.transfers.bank,
+        gain_horizon=gain_horizon,
+        gain_now=gain_now,
+        roll_best=roll_best,
+        horizon=len(WEEK_WEIGHTS),
+        chips=chips,
+        starters=tuple((positions[p], names[p]) for p in best.starters),
+        bench=tuple(names[p] for p in best.bench),
+        captaincy=Captaincy(
+            names[best.captain], names[best.vice_captain], cap_if_plays, cap_plays, vice_mean
+        ),
+        forecast=rec.best.expected,
+        p_win=rec.best.p_win,
+        p_win_before=before.p_win,
+        free_next=free_next,
+        update=update,
     )
 
 
@@ -576,6 +772,8 @@ def decide_team_chip(
     positions: Mapping[int, PositionCode],
     limits: Limits,
     playable: Collection[str],
+    *,
+    verdicts: list[ChipVerdict] | None = None,
 ) -> str | None:
     """Bench Boost or Triple Captain THIS week, checked exactly on the lineup being saved: it must
     add more than keeping the chip is worth. A chip is checked when (D43):
@@ -612,4 +810,9 @@ def decide_team_chip(
         )
         if worth and (best is None or gain - needed > best[0]):
             best = (gain - needed, chip)
-    return best[1] if best else None
+        if verdicts is not None:
+            verdicts.append(ChipVerdict(chip, False, gain, needed, chip in advice.last_chance))
+    chosen = best[1] if best else None
+    if verdicts is not None:
+        verdicts[:] = [replace(v, played=v.chip == chosen) for v in verdicts]
+    return chosen

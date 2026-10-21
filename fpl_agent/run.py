@@ -7,8 +7,9 @@ next times, so one failed run can't break the chain:
   something needs you, while there's still time to fix it, or a gameweek reminder of a review
   due (fpl_agent/reminders.py, subject "⚠️ ACTION NEEDED");
 - save (60 min before): makes the planned transfers (free ones only unless FPL_ALLOW_HITS=1,
-  D37), then picks and saves the lineup for the new squad (live when FPL_LIVE=1); emails the
-  full summary;
+  D37), then picks and saves the lineup for the new squad (live when FPL_LIVE=1); emails a
+  plain-English summary of the decisions and chances (fpl_agent/report.py, D46; the technical
+  output stays in the log). A test run (FPL_LIVE=0) says TEST in the subject;
 - final (15 min before): runs again with the latest news and re-saves the lineup (the same one
   if nothing changed); emails only if the pick changed, or on a failure.
 Any error emails you before the job exits non-zero. A save run that saved the lineup leaves a
@@ -27,6 +28,7 @@ import sys
 import time
 import traceback
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from fpl_agent.agent import CHIP_LABELS, RunResult, run_gameweek
 from fpl_agent.auth import AuthError, RateLimitedError, TokenManager
@@ -42,6 +44,9 @@ from fpl_agent.data.odds_store import record_odds
 from fpl_agent.data.snapshots import record_snapshot
 from fpl_agent.notify import Mailer, mailer_from_env
 from fpl_agent.reminders import ACTION_PREFIX, reminder_for
+from fpl_agent.report import TEST_PREFIX
+from fpl_agent.report import body as report_body
+from fpl_agent.report import subject as report_subject
 from fpl_agent.stores import cloud_config, token_guard, token_store
 from fpl_agent.submit import hits_allowed, live_mode
 
@@ -76,6 +81,9 @@ def email_subject(mode: str, result: RunResult, live: bool) -> str | None:
     resaved = mode == "final" and result.changed and bool(result.saved and result.saved.sent)
     if not (mode == "save" or failed or resaved):
         return None
+    if not (transfers_failed or failed) and result.report is not None:
+        return report_subject(result.report)  # D46: decisions and chances, plain English
+    test = "" if live else TEST_PREFIX
     if transfers_failed:
         state = "TRANSFERS FAILED"
     elif failed:
@@ -86,7 +94,16 @@ def email_subject(mode: str, result: RunResult, live: bool) -> str | None:
         chip = f"{CHIP_LABELS[result.chip]} played, " if result.chip and live else ""
         state = f"{chip}{moves}lineup {'saved' if live else 'dry run'}"
     extra = " - updated with the latest news" if resaved else ""
-    return f"FPL GW{result.event}: {state} (P(win by 3+) {result.p_target:.0%}){extra}"
+    return f"{test}FPL GW{result.event}: {state} (P(win by 3+) {result.p_target:.0%}){extra}"
+
+
+def email_body(result: RunResult, log: str, tz: ZoneInfo, failed: bool) -> str:
+    """The plain-English report (D46); the full technical log only when something failed (or
+    there's no report), because that's when the details are needed."""
+    parts = [report_body(result.report, tz)] if result.report is not None else []
+    if failed or result.report is None:
+        parts.append(f"TECHNICAL DETAILS (for troubleshooting)\n{log}")
+    return "\n".join(parts)
 
 
 def gameweek_work(
@@ -126,7 +143,9 @@ def gameweek_work(
         return 0
     subject = email_subject(mode, result, live)
     if subject:
-        mailer.send(subject, out.getvalue())
+        text = email_body(result, out.getvalue(), ZoneInfo(settings.timezone), "FAILED" in subject)
+        print(f"--- email ---\n{subject}\n\n{text}")
+        mailer.send(subject, text)
     if mode == "save" and result.saved is not None and result.saved.sent:
         # The watchdog's proof that this gameweek's save run happened (D42).
         proof = {"event": result.event, "at": datetime.now(UTC).isoformat()}

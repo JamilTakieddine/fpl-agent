@@ -43,7 +43,7 @@ anything.
    A watchdog checks every 30 minutes that the runs will fire. Alerts email you if anything fails.
 
 Every design decision, the alternatives considered and why they lost, is in
-[`docs/decisions.md`](docs/decisions.md) (45 of them, so far). The maths behind it (Poisson, Monte
+[`docs/decisions.md`](docs/decisions.md) (46 of them, so far). The maths behind it (Poisson, Monte
 Carlo, shrinkage, maximum likelihood, mixed-integer programming and the rest), with where each
 idea is used and why, is in [`docs/math.md`](docs/math.md).
 
@@ -63,7 +63,9 @@ cp .env.example .env
 1. **Your IDs.** In `.env`, set:
    - `FPL_ENTRY_ID`, the number in your team's points URL
      (`fantasy.premierleague.com/entry/<this>/event/…`);
-   - optionally, `FPL_H2H_LEAGUE_ID`, the number in your head-to-head league's URL.
+   - optionally, `FPL_H2H_LEAGUE_ID`, the number in your head-to-head league's URL;
+   - optionally, `FPL_TIMEZONE` for the times in the emails (for example `America/New_York`;
+     the default is UTC).
 2. **Log in once.** `python spikes/phase0_auth.py` opens a browser for you to sign in to FPL.
    The session is saved to `.secrets/` (git-ignored, never committed).
 3. **Dry run.** `python -m fpl_agent.optimize` prints the recommended lineup, captain, transfers and

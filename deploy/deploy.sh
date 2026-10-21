@@ -76,7 +76,7 @@ say "Job ${JOB}: build and deploy (one task, no parallel runs, live saving on)"
 gcloud run jobs deploy "$JOB" --source . --region "$REGION" \
   --memory 4Gi --cpu 2 --task-timeout 15m --max-retries 0 --tasks 1 --parallelism 1 \
   --service-account "$RUNNER" \
-  --set-env-vars "FPL_TOKEN_STORE=secret-manager,FPL_GCP_PROJECT=${PROJECT},FPL_BUCKET=${BUCKET},FPL_REGION=${REGION},FPL_LIVE=1,FPL_ENTRY_ID=${FPL_ENTRY_ID},FPL_H2H_LEAGUE_ID=${FPL_H2H_LEAGUE_ID}" \
+  --set-env-vars "FPL_TOKEN_STORE=secret-manager,FPL_GCP_PROJECT=${PROJECT},FPL_BUCKET=${BUCKET},FPL_REGION=${REGION},FPL_LIVE=1,FPL_ENTRY_ID=${FPL_ENTRY_ID},FPL_H2H_LEAGUE_ID=${FPL_H2H_LEAGUE_ID},FPL_TIMEZONE=${FPL_TIMEZONE:-UTC}" \
   --set-secrets "FPL_EMAIL=fpl-email:latest,FPL_EMAIL_APP_PASSWORD=fpl-email-app-password:latest"
 # Every deploy pushes a new image; without a limit they pile up past the 0.5 GB free tier (D45).
 # Keep the 3 newest (the job runs the newest), delete the rest. Google applies this daily.
