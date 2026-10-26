@@ -2482,3 +2482,24 @@ that didn't error.
 Recommendation: a "deadline watchdog". Each successful save run records its gameweek, and an independent check (a
 Monitoring metric-absence alert, or a fourth fixed daily trigger) emails if a deadline is under 3 hours away and no
 save run has succeeded for that gameweek. Decide at the GW10–11 review.
+
+**Q12. Should transfers favour differentials against this week's opponent when options are close?** *(2026-10-25,
+raised by the user after GW8.)* Transfers are ranked only by expected points over the 5-week horizon (D32); the
+opponent plays no part. In GW8 the agent bought Gonzalo, whom the opponent already started (the opponent model knew,
+from their GW7 team), so he was neutral for that week's margin (2 points each); the 3-transfer option beat the best
+2-transfer one by about 2 expected points over 5 weeks.
+Recommendation: a tie rule like the lineup's (D31). Among options whose 5-week gain is within the noise of the best,
+pick the one with the highest chance of beating this week's opponent; a transfer lasts weeks against different
+opponents, so the opponent should only break ties, never outweigh real expected points. Design and back-test it
+(planner_backtest has no opponents; the D35 league back-test does) at the GW10–11 review.
+
+**Q13. Should a news layer adjust chances of playing between FPL's flags?** *(2026-10-25, raised by the user after
+GW8.)* The agent reads only FPL's injury flags (D32). B.Fernandes was unflagged at the GW8 deadline and didn't play;
+news of a dispute with his manager never became a flag. CLAUDE.md already allows an LLM here ("turning injury news
+text into flags").
+Recommendation: before each run, collect recent news for both squads; an LLM returns structured flags (player,
+reason, risk, source), never decisions; deterministic, tested code maps them to a bounded change in the chance of
+starting (one report moderates it, never to zero; only an official statement or several sources go further), and
+the email cites what was used. It must fail safe (no news = today's behaviour) and be back-tested first: do the flags
+predict benchings? In GW8 it wouldn't have changed the score (O'Shea came on automatically), but it matters when the
+bench can't cover, for the captaincy, and for selling a player a week early. Decide at the GW10–11 review.
