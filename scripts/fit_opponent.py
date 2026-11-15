@@ -1,11 +1,13 @@
 """Refit the opponent model on the H2H league's real data and print it (D30). Changes nothing.
 
 1. Captain spread (habit weight, temperature): maximum likelihood over every league manager's
-   real captain picks, using the model's no-peeking expected points for that gameweek (from the
-   back-test records, data/cache/validation/2026-27_points.jsonl). Compared against two simple
-   rules: "top expected points" and "same as last week".
+   real captain picks, using the model's no-peeking expected points for that gameweek: GW2-5
+   from the back-test records (2026-27_points.jsonl), GW6 on from the optimizer back-test,
+   which rebuilds what the agent itself saw (optimizer_points.jsonl, D47). Compared against two
+   simple rules: "top expected points" and "same as last week".
 2. AVERAGE scale: FPL's overall average vs ownership x real points, for finished gameweeks
-   whose pre-deadline ownership was saved in a flag snapshot. Weeks without one are shown with
+   whose pre-deadline ownership was saved in a flag snapshot (the cloud bucket's, mirrored by
+   scripts/fetch_league_cache.py into data/cache/bucket/). Weeks without one are shown with
    TODAY's ownership, marked indicative (ownership drifts: GW1 was 14 points off that way).
 
 Caches league picks and H2H results in data/cache/ (gitignored); only missing ones are fetched,
@@ -45,6 +47,7 @@ from fpl_agent.optimize.opponent import (
 )
 from fpl_agent.optimize.rules import Limits
 from fpl_agent.validation.backtest import VALIDATION_DIR
+from fpl_agent.validation.optimizer import MIRROR, XP_PATH
 
 CACHE = Path("data/cache")
 THROTTLE_S = 1.0
@@ -87,9 +90,10 @@ def main() -> int:
 
     # --- 1. captain spread -----------------------------------------------------------------------
     xp: dict[int, dict[int, float]] = defaultdict(dict)
-    for line in (VALIDATION_DIR / f"{SEASON}_points.jsonl").read_text().splitlines():
-        r = json.loads(line)
-        xp[r["gw"]][r["player"]] = r["e_points"]
+    for path in (VALIDATION_DIR / f"{SEASON}_points.jsonl", XP_PATH):  # the second wins
+        for line in path.read_text().splitlines() if path.exists() else []:
+            r = json.loads(line)
+            xp[r["gw"]][r["player"]] = r["e_points"]
     cases, last_captain = [], []
     for (e, gw), p in sorted(picks.items()):
         if gw not in xp:
@@ -134,7 +138,7 @@ def main() -> int:
     )
 
     # --- 2. AVERAGE scale ------------------------------------------------------------------------
-    store = FileSnapshotStore(settings.snapshot_dir)
+    store = FileSnapshotStore(MIRROR / "snapshots")
     today = {p.id: p.selected_by_percent for p in boot.elements}
     average = {e.id: e.average_entry_score for e in boot.events}
     point_in_time, template, actual = [], [], []

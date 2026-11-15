@@ -40,8 +40,9 @@ CHIP_FLOOR = 0.30  # chance in a chip-worthy gameweek, at least
 CHIP_CAP = 0.80  # never a certainty: people forget, or save it
 FORFEIT_WEEKS = 2  # last gameweeks of a chip's window: a held chip may be played in ANY week
 
-# FPL's overall average ~= this x sum(ownership x points): fitted on GW2-5 (0.906, within ~3 pts).
-AVERAGE_SCALE = 0.9
+# FPL's overall average ~= this x sum(ownership x points): fitted on GW6-10's pre-deadline
+# ownership (D49; misses +1/+5/+2/-5/-3). GW2-5's 0.9 used today's ownership and ran ~4 pts low.
+AVERAGE_SCALE = 0.976
 
 
 # --- their team sheet ----------------------------------------------------------------------------

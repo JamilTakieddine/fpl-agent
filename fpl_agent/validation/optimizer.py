@@ -61,6 +61,7 @@ CACHE = Path("data/cache")
 MIRROR = CACHE / "bucket"  # the agent's own saved flags and odds (scripts/fetch_league_cache.py)
 GAMEWEEKS = range(6, 11)  # the fair weeks: the agent ran on its own, with flags (D47)
 N_SIMS = 10_000  # as in production: lineup choices depend on the tails
+XP_PATH = VALIDATION_DIR / "optimizer_points.jsonl"  # expected points per player, GW6 on
 TEMPLATE = Path(__file__).with_name("optimizer_template.html")
 
 
@@ -194,7 +195,10 @@ def with_flags(players: Sequence[Player], snapshot: FlagSnapshot | None) -> list
     ]
 
 
-def run(my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS) -> list[TeamWeek]:
+def run(
+    my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS
+) -> tuple[list[TeamWeek], dict[int, dict[int, float]]]:
+    """Team-week records, plus each gameweek's expected points per player (the agent's view)."""
     boot = Bootstrap.model_validate(json.loads((CACHE / "bootstrap.json").read_text()))
     fixtures = [
         Fixture.model_validate(f) for f in json.loads((CACHE / "fixtures.json").read_text())
@@ -208,7 +212,7 @@ def run(my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS) -> list[Tea
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
     snapshots, saved_odds = FileSnapshotStore(MIRROR / "snapshots"), FileOddsStore(MIRROR / "odds")
 
-    records = []
+    records, expected = [], {}
     for gw in gws:
         case = build_case(season, gw)
         snaps = {g: s for g in window_events(gw) + [gw] if (s := snapshots.load(g)) is not None}
@@ -238,6 +242,7 @@ def run(my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS) -> list[Tea
         xp = {
             int(p): float(e) for p, e in zip(sim.points.player, sim.points.expected(), strict=True)
         }
+        expected[gw] = xp
         rng = np.random.default_rng(gw)
         opponents = {
             opp: modelled_opponent(
@@ -305,7 +310,7 @@ def run(my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS) -> list[Tea
                 )
             )
         print(f"GW{gw}: {sum(r.gw == gw for r in records)} team-weeks", flush=True)
-    return records
+    return records, expected
 
 
 # --- summary -------------------------------------------------------------------------------------
@@ -617,11 +622,16 @@ def main() -> int:
             my_entry: int | None = load_settings().entry_id
         except ConfigError:
             my_entry = None
-        records = run(my_entry)
+        records, expected = run(my_entry)
         VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
         with path.open("w") as f:
             for r in records:
                 f.write(json.dumps(asdict(r)) + "\n")
+        # Read by scripts/fit_opponent.py: the captain fit uses what the agent itself expected.
+        with XP_PATH.open("w") as f:
+            for gw, xp in expected.items():
+                for player, e in xp.items():
+                    f.write(json.dumps({"gw": gw, "player": player, "e_points": e}) + "\n")
     lives = {
         gw: {
             e["id"]: e["stats"]

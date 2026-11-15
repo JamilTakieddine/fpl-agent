@@ -25,13 +25,13 @@ The agent's lineup changed the result in 3 team-weeks: 3 better, 0 worse.
 
 ## Captain and lineup choices
 
-- Same captain as the manager: 49%; same starting XI: 7%.
+- Same captain as the manager: 49%; same starting XI: 9%.
 - Armband points, agent vs manager: +0.96 (95% -0.3 to +2.2).
 
 ## Were the win chances honest?
 
-- Predicted P(win) for the agent's lineups averaged **55.0%**; they actually won **56.4%**.
-- Brier score 0.165 (lower is better; always guessing 50% scores 0.250).
+- Predicted P(win) for the agent's lineups averaged **54.1%**; they actually won **56.4%**.
+- Brier score 0.166 (lower is better; always guessing 50% scores 0.250).
 
 ## Why the agent differs
 
@@ -39,12 +39,12 @@ The agent changed 2.1 starters per team-week on average.
 
 | Starters only one side picked | n | Played 0 minutes | Out two weeks running | Real points | When they played |
 |---|---|---|---|---|---|
-| Agent's picks | 118 | 46% | 42 | 2.17 | 4.00 |
-| Manager's picks | 118 | 8% | 1 | 3.18 | 3.47 |
+| Agent's picks | 117 | 45% | 41 | 2.19 | 4.00 |
+| Manager's picks | 117 | 9% | 1 | 3.13 | 3.42 |
 
 "Out two weeks running": 0 minutes that gameweek and the one before, almost always an injury FPL had flagged. From GW6 the rebuilt weeks see the flags too: the agent starts some flagged players ON PURPOSE when the bench covers them, since FPL's auto-sub brings the bench player in (scored on real minutes). When the bench can't cover them all, the slot scores 0 (Q14).
 
-Clean comparison (only team-weeks where every swapped player played the gameweek before): agent vs manager **-0.05 (95% -2.0 to +1.9)** over 21 team-weeks.
+Clean comparison (only team-weeks where every swapped player played the gameweek before): agent vs manager **-0.05 (95% -1.9 to +1.8)** over 22 team-weeks.
 
 ## A humbler agent
 
@@ -52,7 +52,7 @@ Keep the manager's lineup unless the agent's expected gain is at least T points 
 
 | T | Switches | Agent vs manager (95%) | W-D-L |
 |---|---|---|---|
-| 0.0 | 53 | +1.22 (95% -0.2 to +2.7) | 31-0-24 |
+| 0.0 | 54 | +1.22 (95% -0.2 to +2.7) | 31-0-24 |
 | 0.5 | 31 | +1.33 (95% -0.0 to +2.7) | 30-0-25 |
 | 1.0 | 21 | +0.80 (95% -0.3 to +1.9) | 30-0-25 |
 | 1.5 | 12 | +0.53 (95% -0.4 to +1.4) | 29-0-26 |

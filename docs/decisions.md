@@ -2426,6 +2426,65 @@ the cleanest one (no chips) is slightly negative.
 four-policy report; `agent_no_chips_hits` and `agent_no_chips_rerun` stay too (the rerun is the noise check for future replays); the
 hits runs are recorded here. Revisit with flags data.
 
+## D49. AVERAGE scale 0.9 → 0.976; the captain model and opponent chips stay as they are
+
+*2026-11-15. GW10-11 review, step 3 (Q6). Proposed; awaiting the user's review.*
+
+**Context.** D30's opponent model has constants to recheck as the season goes on (Q6): the captain spread
+(habit weight 0.85, temperature 1.0, fitted on 44 GW2–5 decisions), the AVERAGE scale (0.9, fitted on GW2–5 with
+*today's* ownership, flagged as indicative), D44's ordinary-week chip rate, and the availability scaling of habit.
+
+**Method.** `scripts/fit_opponent.py` on the cached league data, with two fixes so it sees GW6–10:
+- *Expected points for GW6–10:* the optimizer back-test (D47) now saves each player's expected points as the agent
+  itself saw them (flags and saved odds) to `optimizer_points.jsonl`; the fit uses those from GW6. Rerunning the
+  back-test with this change reproduced `docs/optimizer_backtest.md` exactly.
+- *Ownership:* the fit read the local snapshot folder, which only holds GW6. It now reads the bucket mirror
+  (`data/cache/bucket/`, filled by `scripts/fetch_league_cache.py`), which holds GW6–10.
+
+**Results.**
+1. **Captain spread (99 decisions, GW2–10): no change.** Best fit habit 0.90 / temperature 1.0, average
+   log-likelihood −0.456, against −0.459 for the values in use: the surface is flat, as in D30. The fitted model's
+   most likely captain was right 91% of the time; "top expected points" 58%, "same as last week" 90%.
+2. **AVERAGE scale (GW6–10, pre-deadline ownership): 0.976.** Weekly ratios 0.992, 1.068, 1.011, 0.888, 0.932
+   (mean 0.978, s.e. about 0.03; 0.9 is about 2.5 s.e. below). With 0.9 the predicted AVERAGE missed by
+   +5, +9, +5, −1, +2 (about 4 points low on average); with 0.976 by +1, +5, +2, −5, −3 (mean 0).
+3. **Opponents' chips in ordinary weeks (GW1–10 had no double or blank weeks; my own team excluded):** Triple
+   Captain 2 plays in 88 holder-weeks (2.3%), against 4.0% FPL-wide; Bench Boost 2 in 89 (2.2%), against 2.4%.
+   D44 guessed active rivals might play more often than FPL-wide; the data doesn't show it (4 plays is a small
+   sample; at 4% about 3.5 Triple Captains were expected). D44's rule stays, so CLAUDE.md is unchanged.
+4. **Flagged habitual captains (GW6–10, 7 cases):** at 75%, kept 2 of 3; at 0%, kept 2 of 4, both by the same
+   manager with 0 transfers. Both 0% captains played 0 minutes, so the armband went to the vice-captain, which is
+   close to what the model's availability scaling assumes. Too few cases to change anything.
+
+**Effect of the new scale on decisions** (the GW6–10 back-test rerun with 0.976; only the 5 AVERAGE team-weeks
+can differ, and every other record was identical):
+- P(win) against AVERAGE drops 8–12 points: GW6 74.3% → 62.6%, GW7 86.1% → 77.6%, GW8 75.3% → 64.1%,
+  GW9 53.1% → 41.5%, GW10 89.3% → 81.6%. Those 5 weeks ended 4 wins, 1 loss; Brier 0.088 (0.9) against 0.105
+  (0.976), too few outcomes to tell them apart. The AVERAGE score itself (results 2) is the direct evidence.
+- Lineups: 4 of 5 the same. GW10 (my week, Triple Captain): Mukiele starts instead of Thomas (who played 0
+  minutes and was auto-subbed by Mukiele anyway) and Ødegaard is vice-captain instead of Haaland. Expected
+  points 62.66 → 62.78; real points 94 both ways.
+
+**Decision.** AVERAGE scale 0.976, the fitted value. It removes a measured bias of about 4 points in the AVERAGE
+opponent, so win chances in AVERAGE weeks are honest. On this evidence it rarely changes a decision. The other
+three stay as they are.
+
+**Alternatives rejected.**
+- *Keep 0.9:* it was fitted on ownership the model can't have had, and the point-in-time data says it runs low.
+- *Habit weight 0.90:* a likelihood gain of 0.003 is noise on a flat surface (D30's rule: change only on a clear
+  move).
+- *A league-specific chip rate:* 4 plays; D44's reason for the FPL-wide rate still holds.
+
+**Not tested (so not claimed).** Whether ownership churn in other parts of the season moves the ratio; 5 weeks
+only. Refit at GW16 (`docs/maintenance.md`).
+
+- Whole back-test report (`docs/optimizer_backtest.md`, re-rendered from the 0.976 records): agent vs managers
+  and the H2H record unchanged (+1.22, 31–24). Predicted P(win) averaged 54.1% against 56.4% actual wins
+  (55.0% with 0.9), Brier 0.166 (0.165). D47's figures are kept as they were, made with 0.9.
+
+**Consequences.** `AVERAGE_SCALE` = 0.976. `docs/maintenance.md`'s Q6 row updated: the back-test range no longer
+needs extending by hand from GW6, since the optimizer back-test provides the expected points.
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2522,7 +2581,7 @@ trusted. With simulated gameweeks this is one parameter: maximize P(my points �
 instead of P(my points > opponent's points). Before fixing the value, Phase 3 should show how much plain
 win probability each buffer size costs.
 
-**Q6. Do the opponent model's assumptions hold as the season goes on?** *(D30, 2026-09-30.)* *Chips in ordinary weeks: changed in D44 (FPL-wide rate); compare the league's own rate at GW10–11.*
+**Q6. Do the opponent model's assumptions hold as the season goes on?** *(D30, 2026-09-30.)* *Chips in ordinary weeks: changed in D44 (FPL-wide rate). GW10–11 refit (D49): AVERAGE scale 0.9 → 0.976; captain spread, league chip rate and availability scaling hold. Next refit GW16.*
 Starting values: captain habit weight 0.85 / temperature 1.0, AVERAGE scale 0.9, chip chance 30–80%, and habit
 scaled by availability.
 - *Captain spread*: re-run `python scripts/fit_opponent.py` every ~5 gameweeks. Each gameweek adds 10 decisions.
