@@ -115,7 +115,7 @@
     <h2>Why the agent differs</h2>
     <p id="swaps-lede"></p>
     <div class="scroll"><table id="swaps"></table></div>
-    <p id="swaps-note">"Out two weeks running" means 0 minutes that gameweek and the one before: almost always an injury FPL had flagged, which managers saw and the rebuilt weeks don't.</p>
+    <p id="swaps-note">"Out two weeks running" means 0 minutes that gameweek and the one before: almost always an injury FPL had flagged. From GW6 the rebuilt weeks see the flags too: the agent starts some flagged players ON PURPOSE when the bench covers them, since FPL's auto-sub brings the bench player in (scored here on real minutes). In GW6–10 the bench covered 36 of 42 such starts; in the other 6 the squad had too many players out (Q14).</p>
     <p id="clean"></p>
   </section>
 
@@ -238,11 +238,11 @@ const DATA = /*__DATA__*/null;
 
   [
     `${S.n} team-weeks is a small sample: a difference inside the 95% interval could be luck. Rerun every ~5 gameweeks as the sample grows.`,
-    "The opponent captain model was fitted on these same GW2–5 picks (D30), which slightly flatters the H2H part.",
-    "No injury flags exist before GW6, so the rebuilt weeks see everyone as fit.",
-    "AVERAGE weeks use today's ownership, the only one available for GW2–5.",
+    "The opponent captain model was fitted on GW2–5 picks (D30), not these weeks.",
+    "From GW6 the rebuilt weeks use the agent's own saved flags, odds and ownership (D47); for GW2–5 none existed, so those weeks saw everyone as fit.",
+    "In your own team-weeks from GW7 the manager IS the agent (live, with fresher news), so the two lineups should mostly agree.",
     `Check: the managers' own team sheets, scored by our rules, reproduce FPL's official score in ${S.official_check} of ${S.n} team-weeks.`,
   ].forEach((t) => $("caveats").append(el("li", null, t)));
-  $("foot").textContent = `Generated ${S.generated} by python -m fpl_agent.validation.optimizer. Method: D35 in docs/decisions.md.`;
+  $("foot").textContent = `Generated ${S.generated} by python -m fpl_agent.validation.optimizer. Method: D35 and D47 in docs/decisions.md.`;
 })();
 </script>

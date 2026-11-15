@@ -2323,6 +2323,63 @@ The email must say why; nothing in the decision needed fixing.
 
 ---
 
+## D47. The optimizer back-test on the fair weeks (GW6-10), from the agent's own saved inputs
+
+*2026-11-15. GW10-11 review, step 1 (Q9). Proposed; awaiting the user's review.*
+
+**Context.** D35's back-test (GW2-5) found no evidence the agent beat the league's managers (-2.2 points per
+team-week). D35 suspected the missing injury flags: the rebuilt weeks saw everyone as fit while managers saw FPL's
+flags (tested below: they explain only a small part). From GW6 the agent ran on its own and its cloud runs saved, 15 minutes before each
+deadline, the flag snapshot (with that week's ownership) and the Kalshi odds it used (D36). The back-test's data was
+also cached by hand once, so it couldn't easily be rerun "every ~5 gameweeks" as the maintenance schedule says.
+
+**Decision.**
+- **`scripts/fetch_league_cache.py` refreshes `data/cache/` in one command:** live data, H2H results and every
+  manager's picks for each finished gameweek (cached files are skipped), plus a mirror of the bucket's snapshots
+  and odds in `data/cache/bucket/`.
+- **The back-test runs GW6-10 by default** (`GAMEWEEKS`) and rebuilds each week from what the agent saw:
+  - the deadline's flags are put on the rebuilt players (`with_flags`), and the window's snapshots go to the
+    lineup model, as in production;
+  - the saved Kalshi odds are passed as `saved_odds` (the same path production uses when live odds fail);
+  - AVERAGE weeks use that week's saved ownership instead of today's.
+
+**Alternatives rejected.**
+- *Rebuild GW6-10 odds from Kalshi price history, like GW2-5:* a second reconstruction of something the agent
+  already recorded; the saved odds are exactly its inputs.
+- *Pool GW2-10:* GW2-5 has no flags, so pooling would mix the unfair weeks into the fair ones. GW2-5's result stays
+  in D35.
+
+**Results** (55 team-weeks, every manager in the league; `docs/optimizer_backtest.md`):
+- **Agent vs manager: +1.22 real points per team-week (95% -0.2 to +2.7).** The model expected +0.93 (95% +0.7 to
+  +1.2), so the gain is about what it predicted. The interval just touches 0: likely real, not yet proven.
+- **H2H: 31-0-24 against the real opponent score, against the managers' 28-0-27** (+9 league points). The agent's
+  lineup changed 3 results, all for the better.
+- **The win chances are honest:** predicted 55.0%, actual 56.4%; Brier 0.165 (coin flip 0.250).
+- **Armband:** same captain as the manager 49% of the time; +0.96 armband points (95% -0.3 to +2.2).
+- **The humble rule doesn't help.** Requiring an expected gain of T points before switching: T = 0.5 gives +1.33
+  (within noise of +1.22); T >= 1 is worse (+0.80 at 1.0, +0.07 at 2.0). Keep switching at any expected gain (T = 0).
+- **Scoring check:** the managers' own team sheets, scored by our rules, reproduce FPL's score in 55 of 55.
+- **The flags are worth little of this** (checked: the same run with flags switched off, everything else unchanged):
+  +1.04 points per team-week (95% -0.5 to +2.5) and 88 league points, against +1.22 and 93 with them. So the swing
+  from GW2-5's -2.2 is mostly NOT the flags. What else explains it (the weeks themselves, or the odds: GW2-5 used
+  odds rebuilt from Kalshi price history, GW6-10 the saved ones) is not tested.
+- **Your own weeks:** the agent's rebuilt lineup scored the same as what you played in GW7-10 (the agent itself
+  played those), and 64 against your own 59 in GW6 (the week the agent missed).
+
+**A finding: the agent starts some players it expects to get 0 minutes.** 46% of the starters only the agent
+picked played 0 minutes (managers: 8%), and 42 were flagged injured, suspended or doubtful. On purpose: when the
+bench covers him, FPL's auto-sub brings the bench player in, so for the optimizer it is nearly a tie. Checked on
+real minutes: 36 of 42 were covered by a real auto-sub. In the other 6 the squad had more players out than its bench
+could cover, and bench players the model gave some chance didn't play either (agent vs manager in those: 0, -5, 0,
++18, 0, +1). Not a net loss. Whether avoiding such starts would score better is not tested: Q14.
+
+**Consequences.**
+- Q9 is answered for now: on fair weeks the agent beats the managers, and the H2H objective converts that into
+  wins. It keeps setting the lineup on its own, with no humble threshold.
+- Rerun every ~5 gameweeks (next about GW15): `python scripts/fetch_league_cache.py`, extend `GAMEWEEKS`, then
+  `python -m fpl_agent.validation.optimizer`, and republish the page.
+- The caveat that remains: the opponent captain model was fitted on GW2-5 (refit in step 3 of this review).
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2467,6 +2524,9 @@ Recommendation:
 - *Humility test (D35):* a minimum expected gain before switching (about 1–1.5 points) removed most of GW2–5's
   loss, but no threshold beat the managers. Decide at GW10–11, on fair weeks, whether the autonomous agent should
   only change the saved lineup when the gain clears such a threshold.
+- *Answered for now in D47 (2026-11-15):* on the fair weeks GW6–10 the agent beats the managers by +1.22 points per
+  team-week (95% −0.2 to +2.7, about what it expected) and goes 31-0-24 against their 28-0-27. The humble rule
+  doesn't help (T ≥ 1 is worse), so it is not adopted. Rerun about GW15.
 
 **Q10. Are the chips' keep-values right?** *(D39, 2026-10-05.)* *Now also the bar for chips the plan doesn't schedule (D43).* Bench Boost and Triple Captain are 1.25 × a typical
 week for the squad; Wildcard is 15 and Free Hit 12, as starting points. Too low, and the agent plays chips early on
@@ -2503,3 +2563,10 @@ starting (one report moderates it, never to zero; only an official statement or 
 the email cites what was used. It must fail safe (no news = today's behaviour) and be back-tested first: do the flags
 predict benchings? In GW8 it wouldn't have changed the score (O'Shea came on automatically), but it matters when the
 bench can't cover, for the captaincy, and for selling a player a week early. Decide at the GW10–11 review.
+
+**Q14. Should the optimizer avoid starting a player with a 0% chance of playing?** *(D47, 2026-11-15.)* The agent
+starts some flagged-out players when the bench covers them, which is nearly a tie in expectation. In 6 of 42 cases
+in GW6–10 the bench couldn't cover and the slot scored 0 (agent vs manager in those 6: 0, −5, 0, +18, 0, +1, so no
+net loss). Untested idea: a tie-break, not a constraint: among lineups within a small expected-points margin, prefer
+the one with fewer starters below a low chance of playing. Adopt it only if the back-test shows it scores better.
+Low priority.

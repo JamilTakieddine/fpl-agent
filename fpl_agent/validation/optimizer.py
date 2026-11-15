@@ -1,7 +1,7 @@
 """Phase 3 part 7: back-test the lineup optimizer on the H2H league's real gameweeks.
 
-(docs/decisions.md D35) Would the agent's lineups have beaten what the league's managers really
-played? For every manager and gameweek GW2-5 (the cached league picks):
+(docs/decisions.md D35, D47) Would the agent's lineups have beaten what the league's managers
+really played? For every manager and gameweek GW6-10 (the cached league picks):
 - rebuild that gameweek's simulation from what was known before its deadline (pointintime, D24);
 - take the manager's ACTUAL squad and actual H2H opponent, modelled as part 3 would have before
   the deadline (their previous squad and captaincy; FPL's average in AVERAGE weeks);
@@ -11,9 +11,11 @@ played? For every manager and gameweek GW2-5 (the cached league picks):
 Then: real points gained, H2H results re-scored against the opponent's real score, captain
 points, and whether the predicted win chances matched how often the agent actually won.
 
-Caveats (also in the report): 44 team-weeks only; the opponent captain model was fitted on these
-same picks; no flags existed before GW6, so the rebuilt weeks see everyone as fit; AVERAGE weeks
-use today's ownership. Offline: everything comes from data/cache/ (gitignored).
+From GW6 the rebuilt weeks see what the agent itself saw (D47): the flag snapshot and Kalshi odds
+it saved 15 minutes before each deadline, and that week's ownership for AVERAGE. GW2-5 (D35) had
+none of these, which made the comparison unfair to the agent. Caveats (also in the report): 55
+team-weeks only; the opponent captain model was fitted on GW2-5 picks. Offline: everything comes
+from data/cache/ (gitignored), refreshed by `python scripts/fetch_league_cache.py`.
 
 Usage: python -m fpl_agent.validation.optimizer [--reuse]   (--reuse: re-render saved records)
   writes docs/optimizer_backtest.md and data/cache/validation/optimizer.html (published as a page)
@@ -34,9 +36,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from fpl_agent.data.calendar import Calendar
-from fpl_agent.data.lineups import predict_all
-from fpl_agent.data.models import Bootstrap, ChipPlay, EntryPicks, Fixture, PositionCode
+from fpl_agent.data.lineups import predict_all, window_events
+from fpl_agent.data.models import Bootstrap, ChipPlay, EntryPicks, Fixture, Player, PositionCode
+from fpl_agent.data.odds_store import FileOddsStore, usable_saved_odds
 from fpl_agent.data.opponent import captain_history, chips_remaining, current_squad
+from fpl_agent.data.snapshots import FileSnapshotStore, FlagSnapshot
 from fpl_agent.model.gameweek import simulate_gameweek
 from fpl_agent.model.points import PointsSamples
 from fpl_agent.optimize.lineup import BUFFER, recommend, summarize
@@ -54,7 +58,8 @@ from fpl_agent.validation.current_season import kalshi_odds_source, load_current
 from fpl_agent.validation.pointintime import build_case
 
 CACHE = Path("data/cache")
-GAMEWEEKS = range(2, 6)
+MIRROR = CACHE / "bucket"  # the agent's own saved flags and odds (scripts/fetch_league_cache.py)
+GAMEWEEKS = range(6, 11)  # the fair weeks: the agent ran on its own, with flags (D47)
 N_SIMS = 10_000  # as in production: lineup choices depend on the tails
 TEMPLATE = Path(__file__).with_name("optimizer_template.html")
 
@@ -179,31 +184,50 @@ def modelled_opponent(
     return opponent_points(squad_sims(points, ids), model, positions, limits, rng)
 
 
+def with_flags(players: Sequence[Player], snapshot: FlagSnapshot | None) -> list[Player]:
+    """The rebuilt players with the flags FPL showed before the deadline (rebuilt: no flags)."""
+    if snapshot is None:
+        return list(players)
+    return [
+        p.model_copy(update=snapshot.flags[p.id].model_dump()) if p.id in snapshot.flags else p
+        for p in players
+    ]
+
+
 def run(my_entry: int | None = None, gws: Sequence[int] = GAMEWEEKS) -> list[TeamWeek]:
     boot = Bootstrap.model_validate(json.loads((CACHE / "bootstrap.json").read_text()))
     fixtures = [
         Fixture.model_validate(f) for f in json.loads((CACHE / "fixtures.json").read_text())
     ]
-    raw_lives = {gw: json.loads((CACHE / f"live_gw{gw}.json").read_text()) for gw in range(1, 6)}
+    raw_lives = {
+        gw: json.loads((CACHE / f"live_gw{gw}.json").read_text()) for gw in range(1, max(gws) + 1)
+    }
     season, _ = load_current_season(boot, fixtures, raw_lives, kalshi_odds_source())
     league = load_league(gws)
     limits = Limits.from_bootstrap(boot)
     positions = {p.id: boot.position_code(p.element_type) for p in boot.elements}
-    ownership = {p.id: p.selected_by_percent for p in boot.elements}  # today's (D35 caveat)
+    snapshots, saved_odds = FileSnapshotStore(MIRROR / "snapshots"), FileOddsStore(MIRROR / "odds")
 
     records = []
     for gw in gws:
         case = build_case(season, gw)
-        preds = predict_all(case.bootstrap.elements, case.calendar, case.lives, gw)
+        snaps = {g: s for g in window_events(gw) + [gw] if (s := snapshots.load(g)) is not None}
+        players = with_flags(case.bootstrap.elements, snaps.get(gw))
+        bootstrap = case.bootstrap.model_copy(update={"elements": players})
+        preds = predict_all(players, case.calendar, case.lives, gw, snaps)
+        # That week's ownership when it was saved; before D30 only today's exists (D35 caveat).
+        ownership = (snaps[gw].ownership if gw in snaps else {}) or {
+            p.id: p.selected_by_percent for p in boot.elements
+        }
         sim = simulate_gameweek(
-            case.bootstrap,
+            bootstrap,
             case.calendar,
             case.fixtures,
             gw,
             preds,
             case.lives,
             case.odds,
-            None,
+            usable_saved_odds(saved_odds.load(gw), list(case.calendar.get(gw).fixtures)),
             n_sims=N_SIMS,
             seed=gw,
         )
@@ -308,7 +332,7 @@ def swap_analysis(
     """Why the agent differs: the starters only one side picked (`minutes`/`points`: real, per
     gameweek and player), and a CLEAN comparison - only team-weeks where every swapped player
     played the gameweek before, so neither side had an obvious injury to know about. Managers
-    saw FPL's injury flags; the rebuilt GW2-5 weeks have none (D35)."""
+    saw FPL's injury flags; the rebuilt GW2-5 weeks have none (D35), GW6 on do (D47)."""
 
     def side(players: list[tuple[int, int]]) -> dict[str, float]:
         mins = [minutes[gw].get(p, 0) for gw, p in players]
@@ -509,7 +533,10 @@ def render_markdown(s: Mapping[str, Any]) -> str:
             f"| {m['points']:.2f} | {m['points_when_played']:.2f} |",
             "",
             '"Out two weeks running": 0 minutes that gameweek and the one before, almost '
-            "always an injury FPL had flagged, which managers saw and the rebuilt weeks don't.",
+            "always an injury FPL had flagged. From GW6 the rebuilt weeks see the flags too: the "
+            "agent starts some flagged players ON PURPOSE when the bench covers them, since FPL's "
+            "auto-sub brings the bench player in (scored on real minutes). When the bench can't "
+            "cover them all, the slot scores 0 (Q14).",
             "",
             f"Clean comparison (only team-weeks where every swapped player played the gameweek "
             f"before): agent vs manager {clean}.",
@@ -563,10 +590,11 @@ def render_markdown(s: Mapping[str, Any]) -> str:
         "",
         f"- {s['n']} team-weeks is a small sample: a difference inside the 95% interval could "
         "be luck. Rerun every ~5 gameweeks as the sample grows.",
-        "- The opponent captain model was fitted on these same GW2-5 picks (D30), which slightly "
-        "flatters the H2H part.",
-        "- No injury flags exist before GW6, so the rebuilt weeks see everyone as fit.",
-        "- AVERAGE weeks use today's ownership (the only one available for GW2-5).",
+        "- The opponent captain model was fitted on GW2-5 picks (D30), not these weeks.",
+        "- From GW6 the rebuilt weeks use the agent's own saved flags, odds and ownership (D47); "
+        "for GW2-5 none existed, so those weeks saw everyone as fit.",
+        "- In your own team-weeks from GW7 the manager IS the agent (live, with fresher news), so "
+        "the two lineups should mostly agree.",
         f"- Check: the managers' own team sheets, scored by our rules, reproduce FPL's official "
         f"score in {s['official_check']} of {s['n']} team-weeks.",
         "",
