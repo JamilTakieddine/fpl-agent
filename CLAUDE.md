@@ -54,6 +54,10 @@ All decisions come from deterministic code that can be tested.
 - Anything that writes to FPL defaults to DRY RUN. A real submission needs an explicit `--live` flag
   (or env `FPL_LIVE=1` in the cloud). Log the exact payload before sending it.
 - Rate-limit politely: cache bootstrap-static per run, no tight loops against the FPL API.
+- Every claim must be backed by data: check it against real results, logs or a test before stating it,
+  and say what it was checked against. Anything not yet checked is labelled as unverified, never stated
+  as fact. When trying or doing something new, say what it is and why. The aim: nothing we do may hurt
+  the agent's performance, only improve it.
 - Record every design/architecture/technical decision that had real alternatives in `docs/decisions.md`
   (context, decision, alternatives rejected and why, consequences) in the same change that makes it.
   Update "Open questions" there when a question is answered or a new one appears.
