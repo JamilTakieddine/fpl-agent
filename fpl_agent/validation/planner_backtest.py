@@ -8,9 +8,15 @@ week on REAL results by the rules engine (real minutes, auto-subs, the captain, 
 - agent: the 5b/5c planner with chips + part 5's options, the exact checks deciding (D38, D39);
 - agent_no_chips: the same without chips;
 - part5: part 5's one-week logic only (D32);
-- hold: no transfers.
-All use free transfers only (D37), at most 3 a week, and the same lineup picker (the most
-expected points: there's no opponent here). Selling prices keep half of any rise (rules).
+- hold: no transfers;
+- agent_hits: the agent with -4 hits allowed, as live with FPL_ALLOW_HITS=1; each hit's 4 points
+  come off its real score (D48: no evidence yet that hits help);
+- agent_no_chips_hits: agent_no_chips with hits allowed: the hits test without chip timing (D48);
+- agent_no_chips_rerun: an exact copy of agent_no_chips, to measure the replay's own noise (the
+  planner has a time limit, so the same inputs may not give the same plan).
+All others use free transfers only (D37). All make at most 3 transfers a week and use the same
+lineup picker (the most expected points: there's no opponent here). Selling prices keep half
+of any rise (rules).
 
 Usage: python -m fpl_agent.validation.planner_backtest [first_gw] [last_gw] [--fresh]
   writes data/cache/validation/planner_backtest.json and docs/planner_backtest.md. It saves a
@@ -49,6 +55,7 @@ from fpl_agent.optimize.rules import (
     next_free_transfers,
     selling_price,
     team_points,
+    transfer_cost,
 )
 from fpl_agent.optimize.scoring import POSITIONS, squad_sims
 from fpl_agent.optimize.transfers import (
@@ -64,8 +71,20 @@ from fpl_agent.validation.pointintime import Season, build_case, load_season
 
 SEASON = "2025-26"
 CODE: dict[int, PositionCode] = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
-POLICIES = ("agent", "agent_no_chips", "part5", "hold")
+POLICIES = (
+    "agent",
+    "agent_no_chips",
+    "part5",
+    "hold",
+    "agent_hits",
+    "agent_no_chips_hits",
+    "agent_no_chips_rerun",
+)
+HITS_POLICIES = ("agent_hits", "agent_no_chips_hits")
 COMPARISONS = (
+    ("agent_hits", "agent"),
+    ("agent_no_chips_hits", "agent_no_chips"),
+    ("agent_no_chips_rerun", "agent_no_chips"),
     ("agent", "hold"),
     ("agent", "part5"),
     ("agent", "agent_no_chips"),
@@ -125,6 +144,7 @@ class State:
     chips: list[tuple[str, int, int]] = field(default_factory=list)  # still available
     points: dict[int, int] = field(default_factory=dict)  # gameweek -> real points
     transfers: dict[int, int] = field(default_factory=dict)
+    hits: dict[int, int] = field(default_factory=dict)  # gameweek -> points deducted
     chips_played: dict[int, str] = field(default_factory=dict)
     notes: dict[int, str] = field(default_factory=dict)
 
@@ -155,6 +175,7 @@ def decide(
     if policy == "hold":
         return Decision(())
     pool_list = list(pool.values())
+    hits = policy in HITS_POLICIES
     if policy == "part5":
         plan = recommend_transfers(
             squad_players,
@@ -168,7 +189,7 @@ def decide(
         )
         return Decision(plan.best.moves)
     xps = [{int(p): float(e) for p, e in zip(w.player, w.expected(), strict=True)} for w in weeks]
-    with_chips = policy == "agent"
+    with_chips = policy in ("agent", "agent_hits")
     chip_weeks, chip_values, expiring = (
         chip_inputs(state.chips, gw, xps, state.squad, positions, limits)
         if with_chips
@@ -186,6 +207,7 @@ def decide(
             chips=chip_weeks,
             chip_values=chip_values,
             must_play=expiring,
+            allow_hits=hits,
             time_limit_s=PLANNER_TIME_S,
         )
     except Exception as e:  # as live: the screened options remain - but say so in the log
@@ -204,7 +226,7 @@ def decide(
         weeks,
         positions,
         limits,
-        allow_hits=False,
+        allow_hits=hits,
         extra=extra,
     )
     advice = Advice(plan, pool, multi, chip_values, list(weeks), squad_players, last_chance)
@@ -279,7 +301,9 @@ def play_week(
         d = replace(d, note=f"{d.note} {quiet.getvalue().strip()}")
     pts = {p: v[0] for p, v in real.items()}
     played = {p: v[1] for p, v in real.items()}
-    state.points[gw] = team_points(lineup, pts, played, positions, limits, chip)
+    # Free-transfer policies never pay this (a built-in check: their hits stay 0).
+    state.hits[gw] = transfer_cost(len(moves), state.free, chip)
+    state.points[gw] = team_points(lineup, pts, played, positions, limits, chip) - state.hits[gw]
     state.transfers[gw] = 0 if chip in TRANSFER_CHIPS else len(moves)
     if d.note:
         state.notes[gw] = d.note
@@ -349,6 +373,7 @@ def load_checkpoint(
             chips=[(c[0], c[1], c[2]) for c in v["chips"]],
             points=ints(v["points"]),
             transfers=ints(v["transfers"]),
+            hits=ints(v.get("hits", {})),
             chips_played=ints(v["chips_played"]),
             notes=ints(v.get("notes", {})),
         )
@@ -448,6 +473,7 @@ def summarize(states: Mapping[str, State]) -> dict[str, Any]:
         out["policies"][name] = {
             "total": sum(s.points.values()),
             "transfers": sum(s.transfers.values()),
+            "hits": sum(s.hits.values()),
             "chips": {str(gw): c for gw, c in s.chips_played.items()},
         }
     for a, b in COMPARISONS:
@@ -468,6 +494,9 @@ def render_markdown(s: Mapping[str, Any]) -> str:
         "agent_no_chips": "Agent without chips",
         "part5": "Part 5 one-week logic",
         "hold": "Hold (no transfers)",
+        "agent_hits": "Agent with -4 hits allowed",
+        "agent_no_chips_hits": "Agent without chips, hits allowed",
+        "agent_no_chips_rerun": "Agent without chips (identical rerun)",
     }
     lines = [
         "# Planner back-test",
@@ -475,12 +504,13 @@ def render_markdown(s: Mapping[str, Any]) -> str:
         f"*{SEASON}, GW{g[0]}-{g[-1]}, by `python -m fpl_agent.validation.planner_backtest`. "
         "Method: D40 in `decisions.md`.*",
         "",
-        "Four policies from the same realistic GW1 squad (the most-owned legal 15 within the "
+        "Policies from the same realistic GW1 squad (the most-owned legal 15 within the "
         "budget), deciding each week from what was known before its deadline and scored on real "
-        "results. Free transfers only, at most 3 a week, the same lineup picker for all.",
+        "results (after any hits). Free transfers only except 'hits allowed' (D48), at most 3 a "
+        "week, the same lineup picker for all.",
         "",
-        "| Policy | Real points | Transfers | Chips played |",
-        "|---|---|---|---|",
+        "| Policy | Real points | Transfers | Hit points paid | Chips played |",
+        "|---|---|---|---|---|",
     ]
     for key, label in names.items():
         if key not in p:
@@ -489,13 +519,19 @@ def render_markdown(s: Mapping[str, Any]) -> str:
         chips = ", ".join(
             f"{c} GW{gw}" for gw, c in sorted(q["chips"].items(), key=lambda t: int(t[0]))
         )
-        lines.append(f"| {label} | **{q['total']}** | {q['transfers']} | {chips or '-'} |")
+        lines.append(
+            f"| {label} | **{q['total']}** | {q['transfers']} | {q.get('hits', 0)} "
+            f"| {chips or '-'} |"
+        )
     lines += ["", "| Comparison | Points over the season (± 1 s.e.) |", "|---|---|"]
     for key, label in (
         ("agent_vs_hold", "Agent vs hold"),
         ("agent_vs_part5", "Agent vs part 5"),
         ("agent_vs_agent_no_chips", "Chips' contribution (agent vs agent without chips)"),
         ("part5_vs_hold", "Part 5 vs hold"),
+        ("agent_hits_vs_agent", "Hits' contribution (hits allowed vs free transfers only)"),
+        ("agent_no_chips_hits_vs_agent_no_chips", "Hits' contribution, no chips"),
+        ("agent_no_chips_rerun_vs_agent_no_chips", "Replay noise (identical policy run twice)"),
     ):
         if key not in s:
             continue
@@ -507,7 +543,9 @@ def render_markdown(s: Mapping[str, Any]) -> str:
         "",
         "- One season, one starting squad: a single path, so luck matters. The s.e. is from the "
         "weekly differences.",
-        "- No hits, no price-change strategy, prices as the archive recorded them.",
+        "- Hits only in 'hits allowed'; no price-change strategy, prices as the archive recorded "
+        "them. No injury flags in the archive, and replacing injured players is a main use of a "
+        "hit, so this may understate hits.",
         "- No injury flags in the archive: the rebuilt weeks see everyone as fit (as in D35).",
         "- Later weeks use the xG-ratings fallback, as live; that week uses closing odds.",
         "",

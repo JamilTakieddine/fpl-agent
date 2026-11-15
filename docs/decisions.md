@@ -2380,6 +2380,52 @@ could cover, and bench players the model gave some chance didn't play either (ag
   `python -m fpl_agent.validation.optimizer`, and republish the page.
 - The caveat that remains: the opponent captain model was fitted on GW2-5 (refit in step 3 of this review).
 
+## D48. −4 hits stay off: three replays found no evidence they help
+
+*2026-11-15. GW10-11 review, step 2 (D37 asked for this decision). Proposed; awaiting the user's review.*
+
+**Context.** Since D37 the agent makes free transfers only (`FPL_ALLOW_HITS` off). CLAUDE.md's rule: a hit costs 4 and
+must beat that in expected gain; the agent asks for 4 + 2 (`HIT_MARGIN`, D32). The question: would allowing hits
+score more real points? Per CLAUDE.md, nothing changes unless the data shows it improves the agent.
+
+**Method.** A new `agent_hits` policy in the season replay (D40, `planner_backtest.py`): the same agent with hits
+allowed in the planner and in part 5's options, as live with `FPL_ALLOW_HITS=1`; each hit's 4 points come off its
+real score. The free-transfer agent goes through the same hit charge as a check (it paid 0, as it must).
+
+**Results (2025/26, scored on real results).**
+1. **Full season, both fresh from the same GW1 squad:** hits allowed 2,234, free only 2,159: **+75 (± 79, 1 s.e.)**.
+   It took 4 hits (16 points), all in GW31–35. **This isn't evidence for hits:** the first hit came in GW31, when
+   the hits policy was already +65 ahead with none taken. The two split in GW2, when both played a Wildcard but
+   built different squads (expected +54.9 against +46.4): allowing hits changes how the planner values later weeks,
+   and so its squad. Everything after that is two different seasons.
+2. **Isolated, both from the SAME state** (the hits policy's squad after GW30), GW31–38: hits **+15 (± 21)**, after
+   paying 16 for 4 hits. Still confounded: Bench Boost went in GW31 with hits and GW36 without, and that week-by-week
+   difference is larger than the result.
+3. **No chips, both fresh from the same GW1 squad, GW2–38** (`agent_no_chips_hits` against `agent_no_chips`; removes
+   chip timing): hits allowed 2,058, free only 2,064: **−6 (± 73)**. It took 9 hits (36 points: GW2, 3, 4, 23, 26,
+   31, 32, 34, 35), so the extra transfers gained 30 points before their cost. Ahead in 15 weeks, behind in 19,
+   level in 3; +74 over GW2–19, −80 over GW20–38. Checks: neither policy played a chip, the free-only one paid 0.
+4. **Replay noise:** `agent_no_chips_rerun`, an identical copy of the free-only policy, matched it in every week's
+   points, transfers and final squad (difference 0). So the planner is repeatable here, and results 1–3 are
+   differences between policies, not run-to-run noise.
+
+**Decision.** Keep hits off. No test shows hits improve the agent: all three results are inside 1 s.e. of zero, and
+the cleanest one (no chips) is slightly negative.
+
+**Alternatives rejected.**
+- *Turn hits on because both totals are positive:* the noise is as big as the result, and the full-season gain came
+  before any hit was taken.
+- *Run more seasons first:* only 2025/26 is archived with closing odds (D24).
+
+**Not tested (so not claimed).**
+- The replay has no injury flags (D40 caveat). Replacing an injured player is a common reason for a hit, so it may
+  understate them.
+- Other seasons or starting squads: the s.e. (about ±75 over a season) is from one path of one season.
+
+**Consequences.** `agent_hits` stays in the replay for future reruns. `docs/planner_backtest.md` keeps D40's
+four-policy report; `agent_no_chips_hits` and `agent_no_chips_rerun` stay too (the rerun is the noise check for future replays); the
+hits runs are recorded here. Revisit with flags data.
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

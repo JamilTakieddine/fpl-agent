@@ -1,6 +1,6 @@
 # Phase 5d: the planner back-test's pure parts - the template starting squad (legal, the most
 # owned), real results summed over a double gameweek's matches, and the summary and report on
-# synthetic seasons; no simulation, no network.
+# synthetic seasons (including the hits-allowed policy, D48); no simulation, no network.
 
 from __future__ import annotations
 
@@ -56,13 +56,16 @@ def test_real_results_sum_a_double_gameweek() -> None:
     assert real_results(season, 6) == {}
 
 
-def state(points: dict[int, int], chips: dict[int, str] | None = None) -> State:
+def state(
+    points: dict[int, int], chips: dict[int, str] | None = None, hits: dict[int, int] | None = None
+) -> State:
     return State(
         squad=[],
         paid={},
         bank=0,
         points=points,
         transfers=dict.fromkeys(points, 1),
+        hits=hits or {},
         chips_played=chips or {},
     )
 
@@ -73,14 +76,19 @@ def test_summary_and_report() -> None:
         "agent_no_chips": state({2: 55, 3: 66}),
         "part5": state({2: 50, 3: 65}),
         "hold": state({2: 40, 3: 50}),
+        "agent_hits": state({2: 58, 3: 75}, {2: "wildcard"}, {2: 0, 3: 4}),
     }
     s = summarize(states)
     assert s["policies"]["agent"]["total"] == 130 and s["policies"]["hold"]["total"] == 90
     assert s["agent_vs_hold"]["total"] == 40 and s["agent_vs_part5"]["total"] == 15
     assert s["policies"]["agent"]["chips"] == {"2": "wildcard"}
     md = render_markdown(s)
-    assert "| Agent (planner + chips) | **130** | 2 | wildcard GW2 |" in md
+    assert "| Agent (planner + chips) | **130** | 2 | 0 | wildcard GW2 |" in md
     assert "Agent vs hold | +40" in md
+    assert s["policies"]["agent_hits"]["hits"] == 4
+    assert s["agent_hits_vs_agent"]["total"] == 3
+    assert "| Agent with -4 hits allowed | **133** | 2 | 4 | wildcard GW2 |" in md
+    assert "hits allowed vs free transfers only) | +3" in md
 
 
 def test_a_checkpoint_round_trips(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,6 +104,7 @@ def test_a_checkpoint_round_trips(tmp_path: Any, monkeypatch: pytest.MonkeyPatch
             chips=[("bboost", 1, 19)],
             points={2: 60},
             transfers={2: 1},
+            hits={2: 4},
             chips_played={2: "wildcard"},
         )
     }
