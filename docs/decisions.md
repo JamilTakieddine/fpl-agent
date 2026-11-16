@@ -2562,6 +2562,45 @@ the season replay has no flags (D40). The lineup back-test is unaffected (it onl
 **Consequences.** `fpl_agent/data/injuries.py`, `model/pipeline.simulate_ahead`; tests for the kickoff rule and
 `first_kickoffs`.
 
+## D52. Players back from injury: a longer-history fallback was tested and not adopted
+
+*2026-11-16. GW10-11 review, step 4, fix 3. Decided with the user: don't adopt; revisit at GW16 (Q15).*
+
+**Context.** In later horizon weeks, players past their return date were predicted to play 21–26% of the time and
+played 32–52% (D51's measurement). Diagnosis (GW6–10, 154 player-weeks): for 98 of them every match in the
+2-gameweek lineup window was excused (injured), so the prediction rested on the season-long start rate alone, which
+counts the injured matches as non-starts. Predicted to play 14.4%, played 37.8%.
+
+**What was tested.** When every window match is excused, take the player's role from all loaded gameweeks (6) with
+injured matches excused too, cameos included; the team top-up (D19) keeps the window history; the run loads flag
+snapshots for all 6 gameweeks.
+
+**Results** (Brier, lower is better; each against the committed code):
+- *Back from injury, next gameweek (53 player-weeks):* playing 0.313 → 0.253, **starting 0.132 → 0.169**. They
+  came back mostly off the bench: 20.8% started, 56.6% played; predicted 33.5% to start (26.8% before).
+- *Back from injury, later horizon weeks (98):* playing 0.245 → 0.224, starting 0.107 → 0.110 (the first week back
+  overpredicted: 19.3% against 9.7%; from two weeks out accurate, 20.6% against 20.0%).
+- *Every player, next gameweek (3,346):* starting 0.0801 → 0.0806, playing 0.0961 → 0.0952.
+- *Lineup back-test (GW6–10, 55 team-weeks):* 23 lineups changed, real points 3,018 → 3,026 (+8 ± 9), no H2H
+  result changed: no evidence either way.
+
+**Decision.** Not adopted, code reverted. It improves how often returning players are predicted to play but
+overstates how often they *start* in their first match back, which makes the lineup overvalue them. Under the rule
+that a change must not hurt the agent, that's a reason to wait.
+
+**What the data suggests instead (not built, not claimed):** a first match back mostly from the bench, then the
+pre-injury role. The 53 cases are too few to fit it now. Undated injuries (predicted 0% for the whole horizon,
+10–22% played, D51's measurement) depend on the same first-match-back question, so they wait too.
+
+**Alternatives rejected.**
+- *Adopt as built:* better play predictions, worse start predictions in the week that sets the lineup.
+- *Fit a first-match-back rule now:* 53 cases, and the horizon weeks don't yet know which week is a player's first
+  back.
+
+**Consequences.** No model change. Q15 holds the revisit at GW16 (`docs/maintenance.md`), when snapshots GW6–15 give
+about twice the cases; a new reminder email (`fpl_agent/reminders.py`, GW16) asks for it, together with the
+5-gameweek refits (D49, D50).
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
@@ -2752,3 +2791,10 @@ in GW6–10 the bench couldn't cover and the slot scored 0 (agent vs manager in 
 net loss). Untested idea: a tie-break, not a constraint: among lineups within a small expected-points margin, prefer
 the one with fewer starters below a low chance of playing. Adopt it only if the back-test shows it scores better.
 Low priority.
+
+**Q15. How should a player back from injury be predicted?** *(D52, 2026-11-16.)* **Revisit at GW16.** A fallback to a
+longer history fixed how often returning players play but overstated their starts in the first match back (20.8%
+started, 56.6% played, GW6–10). Candidate: first match back mostly from the bench, then the pre-injury role; and
+undated injuries given a measured return chance instead of 0% for the whole horizon. Re-measure with GW6–15
+snapshots, design the rule, and adopt it only if starts and plays both calibrate and the lineup back-test doesn't
+lose points.

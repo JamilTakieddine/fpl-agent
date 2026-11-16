@@ -7,7 +7,7 @@ from fpl_agent.reminders import ACTION_PREFIX, REMINDERS, reminder_for
 
 
 def test_reminders_fall_on_the_review_gameweeks() -> None:
-    assert sorted(REMINDERS) == [10, 14, 19, 20, 38]
+    assert sorted(REMINDERS) == [10, 14, 16, 19, 20, 38]
     assert reminder_for(9) is None and reminder_for(11) is None
 
 
@@ -19,3 +19,5 @@ def test_every_reminder_stands_out_and_says_what_to_do() -> None:
     review = reminder_for(10)
     assert review is not None and "GW10-11 review" in review.subject
     assert "Q9" in review.body and "FPL_ALLOW_HITS" in review.body
+    gw16 = reminder_for(16)
+    assert gw16 is not None and "Q15" in gw16.body  # the D52 revisit

@@ -77,6 +77,22 @@ REMINDERS: dict[int, Reminder] = {
             "about 30-60 minutes",
         ),
         _r(
+            16,
+            "GW16 re-checks: players back from injury (Q15) and the 5-gameweek refits",
+            "GW6-15 gives twice the flag snapshots the GW10-11 review had. A longer-history "
+            "rule for players back from injury was tested then and held back, because returning "
+            "players mostly come off the bench first (D52).",
+            [
+                "Players back from injury (Q15): re-run D52's checks on GW6-15, design a "
+                "first-match-back rule, and give undated injuries a measured return chance.",
+                "Re-measure the surprise non-start rates, keepers included (scripts/"
+                "measure_availability.py, D50).",
+                "Refit the opponent captain model and the AVERAGE scale (scripts/fit_opponent.py, "
+                "D49).",
+            ],
+            "about 1-2 hours with Claude",
+        ),
+        _r(
             19,
             "confirm every first-set chip is used (GW19 is the last chance)",
             "Unused first-set chips are lost at this gameweek's deadline. The planner should "
