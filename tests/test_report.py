@@ -1,6 +1,7 @@
 # The gameweek email (D46): plain-English subject and body from a GameweekReport (decisions,
 # chances, reasons, opponent, look-ahead; test runs labelled; never payloads or IDs), the test
-# run's copy of the team after transfers, and failure emails keeping the technical log; no network.
+# run's copy of the team after transfers, a chip an earlier run already played, and failure emails
+# keeping the technical log; no network.
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from fpl_agent.agent import RunResult, apply_moves
+from fpl_agent.agent import RunResult, apply_moves, report_chips
 from fpl_agent.data.models import MyTeam
 from fpl_agent.optimize.rules import Lineup, SquadPlayer
 from fpl_agent.optimize.transfers import Move
@@ -121,6 +122,26 @@ def test_the_other_cases_read_right() -> None:
     assert "Triple Captain: PLAYED, +8.1 points now vs 7.5 to keep it." in body(played, NEW_YORK)
     average = replace(GW8, opponent="FPL's average score", opponent_captains=())
     assert "playing to beat FPL's average score" in body(average, NEW_YORK)
+
+
+def test_a_chip_an_earlier_run_played_still_reads_as_played() -> None:
+    """GW10: the save run played Triple Captain; on the final run FPL shows it as active, not
+    available, and the email said "Chips: none played"."""
+    raw = load_fixture("my_team")
+    for c in raw["chips"]:
+        if c["name"] == "3xc":
+            c["status_for_entry"] = "active"
+    team = MyTeam.model_validate(raw)
+    chips, team_chip = report_chips(10, team, [], None, None, None)
+    assert team_chip == "3xc"
+    assert [(v.chip, v.played) for v in chips if v.played] == [("3xc", True)]
+    final = replace(GW8, team_chip=team_chip, chips=chips)
+    text = body(final, NEW_YORK)
+    assert "Chips: Triple Captain played" in text
+    assert "Triple Captain: PLAYED (already active for this gameweek)." in text
+    assert "Triple Captain" in subject(final)
+    untouched = MyTeam.model_validate(load_fixture("my_team"))
+    assert report_chips(10, untouched, [], None, None, None)[1] is None  # nothing active
 
 
 def test_a_test_run_applies_transfers_to_a_copy_of_the_team() -> None:

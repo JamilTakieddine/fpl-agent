@@ -67,6 +67,7 @@ from fpl_agent.submit import (
     TEAM_CHIPS,
     TRANSFER_CHIPS,
     SubmitResult,
+    active_team_chip,
     free_transfers,
     lineup_payload,
     submit_lineup,
@@ -418,6 +419,33 @@ def run_gameweek(
     )
 
 
+def report_chips(
+    event: int,
+    team: MyTeam,
+    verdicts: Sequence[ChipVerdict],
+    chip_move: ChipMove | None,
+    transfer_chip_name: str | None,
+    play_chip: str | None,
+) -> tuple[tuple[ChipVerdict, ...], str | None]:
+    """The email's chip lines and its Bench Boost / Triple Captain for this gameweek. A team
+    chip an earlier run already played shows on FPL as active, not available; it still counts
+    as played, or the final run's email reads "Chips: none played" (GW10)."""
+    checked = {v.chip: v for v in verdicts}
+    if chip_move is not None:
+        checked[chip_move.chip] = ChipVerdict(
+            chip_move.chip, chip_move.worth_it, chip_move.value, chip_move.needed
+        )
+    team_chip = play_chip or active_team_chip(team)
+    available = [c for c in CHIP_LABELS if chip_playable(c, event, team.chips)]
+    for c in (transfer_chip_name, team_chip):  # played: no longer "available" on FPL
+        if c and c not in available:
+            available.append(c)
+    chips = tuple(
+        checked.get(c, ChipVerdict(c, c in (team_chip, transfer_chip_name))) for c in available
+    )
+    return chips, team_chip
+
+
 def build_report(
     *,
     nxt: NextGameweek,
@@ -463,15 +491,9 @@ def build_report(
     free_next = (
         next_free_transfers(free, used, limits, transfer_chip_name) if free is not None else None
     )
-    checked = {v.chip: v for v in verdicts}
-    if chip_move is not None:
-        checked[chip_move.chip] = ChipVerdict(
-            chip_move.chip, chip_move.worth_it, chip_move.value, chip_move.needed
-        )
-    available = [c for c in CHIP_LABELS if chip_playable(c, nxt.event, team.chips)]
-    if transfer_chip_name and transfer_chip_name not in available:
-        available.append(transfer_chip_name)  # played this run: no longer "available" on FPL
-    chips = tuple(checked.get(c, ChipVerdict(c, c == play_chip)) for c in available)
+    chips, team_chip = report_chips(
+        nxt.event, team, verdicts, chip_move, transfer_chip_name, play_chip
+    )
     row = {p: i for i, p in enumerate(mine.ids)}
 
     def stats(p: int) -> tuple[float, float, float]:
@@ -492,7 +514,7 @@ def build_report(
         opponent_forecast=float(them.points.mean()),
         transfers=moved,
         transfer_chip=transfer_chip_name,
-        team_chip=play_chip,
+        team_chip=team_chip,
         free_transfers=free,
         hit=option.hit if option is not None and to_make and not transfer_chip_name else 0,
         bank_after=team.transfers.bank,

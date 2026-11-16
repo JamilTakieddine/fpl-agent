@@ -178,7 +178,9 @@ def body(r: GameweekReport, tz: ZoneInfo) -> str:
         )
     for v in r.chips:
         label = CHIP_LABELS[v.chip]
-        if v.gain is None or v.keep is None:
+        if v.played and (v.gain is None or v.keep is None):
+            lines.append(f"  {label}: PLAYED (already active for this gameweek).")
+        elif v.gain is None or v.keep is None:
             lines.append(f"  {label}: kept for a better week.")
         elif v.played:
             why = " (its last week)" if v.last_chance else ""

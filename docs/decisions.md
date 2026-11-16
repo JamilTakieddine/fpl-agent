@@ -2798,3 +2798,10 @@ started, 56.6% played, GW6–10). Candidate: first match back mostly from the be
 undated injuries given a measured return chance instead of 0% for the whole horizon. Re-measure with GW6–15
 snapshots, design the rule, and adopt it only if starts and plays both calibrate and the lineup back-test doesn't
 lose points.
+
+**Q16. Should the lineup be chosen with an active Bench Boost / Triple Captain counted?** *(2026-11-16, found
+fixing the GW10 email bug.)* `recommend` never takes a chip. The save run picks the lineup and captain, then decides
+the chip on that lineup (D43); a later run, with the chip already active on FPL, picks them again as if it weren't.
+FPL applies the chip to whoever is captain, so the captain may be chosen for ×2 when he scores ×3, and the email's
+win chance leaves the chip out. Not measured: how often the best captain differs between ×2 and ×3 (replay the
+GW10 final run with the chip passed to the scorer). Decide after measuring.
