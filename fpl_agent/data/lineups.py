@@ -11,7 +11,8 @@ rest on predictions. This baseline uses only FPL's own data (see docs/decisions.
 - Shrinkage: one pseudo-match of season-long behaviour (a Dirichlet prior worth PRIOR_MATCHES)
   so thin recent data can't produce a 0% or 100% role.
 - Surprise non-starts: even an unflagged ever-present starter misses some starts (late knocks,
-  illness, rotation). Every start probability is scaled by (1 - SURPRISE_NON_START); the removed
+  illness, rotation). Every start probability is scaled by (1 - SURPRISE_NON_START), or
+  (1 - GOALKEEPER_SURPRISE_NON_START) for keepers, who are rarely rotated (D50); the removed
   share goes to "no minutes" (slightly conservative).
 
 - Excused matches (D14, D33): if the player carried a flag below 100% (out or doubtful) at a
@@ -51,6 +52,11 @@ DOUBTFUL_NO_PERCENT = 0.5  # status "d" without a percentage (rare)
 # matches, 13 (10.0%) didn't start GW5. One gameweek, so roughly +/-3 points: re-measure as the
 # season goes on (Phase 2 calibration).
 SURPRISE_NON_START = 0.10
+# Keepers (D50): with real flags (GW6-10 snapshots) 1 of 91 unflagged ever-present keepers didn't
+# start, against 50 of 553 outfielders, who are calibrated at 0.10. In 2025/26 (no flags, so both
+# include injuries) keepers missed 4.9% and outfielders 14.0%: ratio 0.35, times 0.10.
+GOALKEEPER_SURPRISE_NON_START = 0.035
+GOALKEEPER = 1  # element_type
 
 
 @dataclass(frozen=True)
@@ -139,7 +145,10 @@ def predict(player: Player, history: RoleHistory, prior_start_rate: float) -> Li
     """Blend recent role with one pseudo-match of season-long behaviour, times availability."""
     n = history.team_matches + PRIOR_MATCHES
     start_rate = (history.starts + PRIOR_MATCHES * prior_start_rate) / n
-    start_rate *= 1 - SURPRISE_NON_START
+    surprise = (
+        GOALKEEPER_SURPRISE_NON_START if player.element_type == GOALKEEPER else SURPRISE_NON_START
+    )
+    start_rate *= 1 - surprise
     cameo_rate = history.sub_appearances / n
     p_avail = availability(player)
     return LineupPrediction(

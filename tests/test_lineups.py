@@ -1,5 +1,6 @@
 # Predicted-lineup baseline: availability from FPL flags, per-match role history (doubles, blanks,
-# transfers), shrinkage, surprise non-starts, the starter top-up, and request count; no network.
+# transfers), shrinkage, surprise non-starts (keepers separately), the starter top-up, and request
+# count; no network.
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import pytest
 from fpl_agent.data.calendar import build_calendar
 from fpl_agent.data.client import API, FplClient
 from fpl_agent.data.lineups import (
+    GOALKEEPER_SURPRISE_NON_START,
     SURPRISE_NON_START,
     LineupPrediction,
     RoleHistory,
@@ -124,14 +126,22 @@ def test_matches_for_a_previous_club_are_ignored() -> None:
 
 
 def test_ever_present_starter_still_has_surprise_risk(bootstrap_json: Any) -> None:
-    p = predict(player(bootstrap_json), RoleHistory(6, 6, 0), prior_start_rate=1.0)
+    midfielder = player(bootstrap_json, element_type=3)
+    p = predict(midfielder, RoleHistory(6, 6, 0), prior_start_rate=1.0)
     assert p.p_start == pytest.approx(1 - SURPRISE_NON_START)
     assert p.p_no_minutes == pytest.approx(SURPRISE_NON_START)
 
 
+def test_ever_present_keeper_has_the_smaller_keeper_risk(bootstrap_json: Any) -> None:
+    keeper = player(bootstrap_json, element_type=1)
+    p = predict(keeper, RoleHistory(6, 6, 0), prior_start_rate=1.0)
+    assert p.p_start == pytest.approx(1 - GOALKEEPER_SURPRISE_NON_START)
+    assert GOALKEEPER_SURPRISE_NON_START < SURPRISE_NON_START
+
+
 def test_one_match_is_shrunk_towards_season_rate(bootstrap_json: Any) -> None:
     # One start, season rate 0: (1 + 0) / (1 + 1) = 0.5 before the surprise factor.
-    p = predict(player(bootstrap_json), RoleHistory(1, 1, 0), prior_start_rate=0.0)
+    p = predict(player(bootstrap_json, element_type=3), RoleHistory(1, 1, 0), prior_start_rate=0.0)
     assert p.p_start == pytest.approx(0.5 * (1 - SURPRISE_NON_START))
 
 

@@ -2485,6 +2485,52 @@ only. Refit at GW16 (`docs/maintenance.md`).
 **Consequences.** `AVERAGE_SCALE` = 0.976. `docs/maintenance.md`'s Q6 row updated: the back-test range no longer
 needs extending by hand from GW6, since the optimizer back-test provides the expected points.
 
+## D50. Goalkeepers get their own surprise non-start rate: 3.5%, not 10%
+
+*2026-11-16. GW10-11 review, step 4, fix 1. Proposed; awaiting the user's review.*
+
+**Context.** D13 measured `SURPRISE_NON_START` (10%) once, on GW5, pooled over positions and with today's flags
+standing in for the real ones. `docs/maintenance.md` scheduled a re-measurement per position at GW11. The new
+`scripts/measure_availability.py` measures it from the agent's own GW6–10 snapshots (the flag as it was 15 minutes
+before each deadline).
+
+**Measurement.** Of players unflagged at the deadline who started each of the previous 4 gameweeks:
+- **Raw rate:** 51 of 644 (7.9%) didn't start: keepers 1 of 91 (1.1%), defenders 7.9%, midfielders 10.2%, forwards
+  8.3%.
+- **The model's predictions for the same players** (10% surprise rate on top of each player's own start rate, after
+  the D19 top-up): outfielders calibrated within about a point (defenders 91.0% predicted against 92.1% real,
+  midfielders 89.6% against 89.8%, forwards 91.3% against 91.7%). **Keepers 90.7% predicted against 98.9% real.**
+
+**Decision.** `GOALKEEPER_SURPRISE_NON_START = 0.035` for keepers; outfielders keep 0.10.
+- *Where 3.5% comes from:* 2025/26 (all 38 gameweeks, no flags, so injuries count as surprises in both groups):
+  keepers missed 4.9% (26 of 529), outfielders 14.0% (493 of 3,509), a ratio of 0.35. Applied to the outfield rate
+  that is calibrated, 0.35 × 10% = 3.5%. This season's 1 of 91 (95% range up to about 6%) is consistent with it.
+- *Not the raw 1.1%:* one event in 91 is too thin to set a constant on.
+
+**Evidence.**
+- *Same data (GW6–10, 369 keeper-weeks):* Brier 0.0121 → 0.0096. Regular keepers' expected starts 82.5 → 87.1
+  (real 90); the others' 17.9 → 13.5 (real 10). Outfielders unchanged.
+- *Out of sample (2025/26, 3,302 keeper-weeks, no flags):* Brier 0.0327 → 0.0317. Regular keepers' expected starts
+  614 → 653 (real about 660); the others' 116 → 77 (real about 70).
+- *Lineup back-test (D47, GW6–10, 55 team-weeks), rerun:* 21 lineups changed, all close calls (expected points
+  within 0.5). Real points 3,019 → 3,018 (−1 ± 12), H2H results unchanged (31–24), agent vs managers +1.22 → +1.20.
+  The changes include outfield swaps: a different keeper chance changes later random draws in the simulation
+  (checked on GW6: 432 of 594 outfielders' samples differ, while their expected points move by 0.006 on average,
+  at most 0.043), so near-ties flip. No evidence of a gain or a loss in real points; the gain is honest inputs.
+
+**Alternatives rejected.**
+- *Keep 10% for everyone:* keepers' chances are measurably wrong in both seasons.
+- *A rate per position for outfielders too:* defenders, midfielders and forwards are each within about a point.
+- *The raw 1.1%:* one event.
+
+**Checked and unchanged (same script, GW6–10):**
+- *D33's excusal:* players with an excused match were predicted to start 34.6%, and started 32.3% (± 4.2).
+- *D32's dateless knocks:* predicted to play 63% a week ahead, played 56%; close enough to leave.
+
+**Consequences.** `fpl_agent/data/lineups.py`; tests for both rates. `scripts/measure_availability.py` is the GW11
+re-measurement `docs/maintenance.md` asked for. D32's return-date and undated-injury rules are the next fixes in this
+review.
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
