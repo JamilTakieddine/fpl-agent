@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from fpl_agent.data.injuries import as_of, return_date
+from fpl_agent.data.injuries import as_of, first_kickoffs, return_date
 from fpl_agent.data.models import Bootstrap, Player, PositionCode
 from fpl_agent.model.points import PointsSamples
 from fpl_agent.optimize.lineup import legal_xis
@@ -22,6 +22,7 @@ from fpl_agent.optimize.transfers import (
     recommend_transfers,
     required_gain,
 )
+from tests.conftest import fx
 
 POS: dict[int, PositionCode] = {
     **dict.fromkeys((1, 2), "GKP"),
@@ -173,10 +174,26 @@ def test_flags_in_later_weeks(bootstrap_json: Any) -> None:
     assert as_of(dated, LATER, NEXT, TODAY).status == "i"  # not back yet
     back = datetime(2026, 10, 31, 10, tzinfo=UTC)
     assert as_of(dated, back, NEXT, TODAY).status == "a"
+    # Deadline the day before the return date, match on it (D51): back for that match.
+    friday = datetime(2026, 10, 30, 17, 30, tzinfo=UTC)
+    saturday = datetime(2026, 10, 31, 14, tzinfo=UTC)
+    early = player(bootstrap_json, "i", 0, "Hamstring injury - Expected back 31 Oct")
+    assert as_of(early, friday, NEXT, TODAY).status == "i"  # no kickoff known: the deadline
+    assert as_of(early, friday, NEXT, TODAY, kickoff=saturday).status == "a"
     unknown = player(bootstrap_json, "i", 0, "Knee injury - Unknown return date")
     assert as_of(unknown, LATER, NEXT, TODAY).status == "i"  # cautious: out all horizon
     gone = player(bootstrap_json, "u", 0, "Has joined Oxford United on loan until January")
     assert as_of(gone, LATER, NEXT, TODAY).status == "u"
+
+
+def test_first_kickoff_per_team() -> None:
+    sat, sun = datetime(2026, 10, 31, 14, tzinfo=UTC), datetime(2026, 11, 1, 14, tzinfo=UTC)
+    fixtures = [
+        fx(1, 5, 1, 2).model_copy(update={"kickoff_time": sun}),
+        fx(2, 5, 1, 3).model_copy(update={"kickoff_time": sat}),
+        fx(3, None, 4, 5),  # unscheduled: no kickoff
+    ]
+    assert first_kickoffs(fixtures) == {1: sat, 2: sun, 3: sat}  # 4 and 5: no kickoff known
 
 
 def test_with_hits_off_no_free_transfer_means_no_transfer(limits: Limits) -> None:

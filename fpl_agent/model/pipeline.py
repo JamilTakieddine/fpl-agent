@@ -13,7 +13,7 @@ from datetime import date, datetime
 from fpl_agent.config import Settings
 from fpl_agent.data.calendar import Calendar, build_calendar, next_deadline
 from fpl_agent.data.client import FplClient
-from fpl_agent.data.injuries import as_of
+from fpl_agent.data.injuries import as_of, first_kickoffs
 from fpl_agent.data.kalshi import KalshiClient
 from fpl_agent.data.lineups import history_events, predict_all, window_events
 from fpl_agent.data.models import Bootstrap, EventLive, Fixture
@@ -84,7 +84,7 @@ def simulate_ahead(
     - lineup predictions use the real recent window (the one before the NEXT gameweek): the
       window before a future gameweek hasn't been played yet;
     - flags are read as they'll stand that week (data/injuries.py): a knock is over after the
-      next gameweek, a dated injury ends on its date.
+      next gameweek, a dated injury ends on its date (compared with his team's kickoff, D51).
     Kalshi usually only prices the next week or so; other matches use the xG-ratings fallback.
     Simulated one at a time, keeping only the points (the rest is ~2 GB per simulation).
     """
@@ -94,7 +94,12 @@ def simulate_ahead(
     odds, _ = load_odds(KalshiClient(client.http), fixtures, boot)
     out = {}
     for gw in events:
-        later = {p.id: as_of(p, cal.get(gw).deadline, nxt.deadline, today) for p in boot.elements}
+        week = cal.get(gw)
+        kickoffs = first_kickoffs(week.fixtures)
+        later = {
+            p.id: as_of(p, week.deadline, nxt.deadline, today, kickoffs.get(p.team))
+            for p in boot.elements
+        }
         predictions = predict_all(
             boot.elements, cal, nxt.lives, nxt.event, nxt.snapshots, available_as=later
         )

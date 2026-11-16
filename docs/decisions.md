@@ -2531,6 +2531,37 @@ before each deadline).
 re-measurement `docs/maintenance.md` asked for. D32's return-date and undated-injury rules are the next fixes in this
 review.
 
+## D51. A return date is compared with the player's match, not the deadline
+
+*2026-11-16. GW10-11 review, step 4, fix 2. Proposed; awaiting the user's review.*
+
+**Context.** D32 reads "Expected back 25 Oct" / "Suspended until 25 Oct" as out until that date, and judged a later
+horizon week by its *deadline*. Deadlines fall a day or more before the matches, so a player due back on the
+Saturday was kept out of that Saturday's match.
+
+**Measurement** (GW6–10 snapshots, one row per player: the first later week whose deadline was before his date):
+30 players. In 9 of them his team's match was on or after the date, and 4 of those 9 played; the model had all 9
+out. Before the actual date, 1 of 21 played.
+
+**Decision.** `injuries.as_of` compares the date with the team's first kickoff that gameweek (`first_kickoffs`),
+falling back to the deadline when no kickoff is known. A double gameweek uses the first match, the cautious
+reading. The deadline itself still comes only from `deadline_time` (CLAUDE.md); the kickoff only judges
+availability.
+
+**Evidence.** Horizon predictions for dated returns (GW6–10, 234 player-weeks, predicted P(plays) against whether he
+played): Brier **0.281 → 0.226**. One week ahead 12.6% → 20.9% predicted (30.3% played); two weeks 23.2% → 31.6%
+(46.5%). Still too low: once back, these players are underpredicted, which is the next fix.
+
+**Not tested (so not claimed).** The effect on transfer decisions: this only changes the later horizon weeks, and
+the season replay has no flags (D40). The lineup back-test is unaffected (it only uses the next gameweek).
+
+**Alternatives rejected.**
+- *The last kickoff in a double gameweek:* would count him back for a match he may miss.
+- *A day's margin on the deadline:* a guess; the kickoff is the actual match.
+
+**Consequences.** `fpl_agent/data/injuries.py`, `model/pipeline.simulate_ahead`; tests for the kickoff rule and
+`first_kickoffs`.
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*
