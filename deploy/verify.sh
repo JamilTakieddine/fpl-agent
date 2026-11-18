@@ -3,7 +3,7 @@
 # with ITS OWN service account, and they succeed. Testing with `gcloud run jobs execute` as the
 # project owner proves nothing about the scheduler's permissions; that gap missed GW6.
 #
-# Proves two triggers:
+# Checks all four triggers retry a refused attempt (D53), then proves two:
 # - fpl-agent-check: a check run only reads from FPL, records this week's snapshot and odds, and
 #   points the three gameweek triggers at the next deadline. (In a reminder week, D40, it also
 #   re-sends that email.)
@@ -61,6 +61,14 @@ prove() {  # trigger name: force it through Cloud Scheduler, require an accepted
   echo "VERIFIED: Cloud Scheduler started ${execution} (${trigger}) with its own account, and it succeeded."
   echo
 }
+
+for trigger in fpl-agent-check fpl-agent-save fpl-agent-final fpl-agent-watchdog; do  # D53
+  retries="$(gcloud scheduler jobs describe "$trigger" --location "$REGION" --project "$PROJECT" \
+    --format='value(retryConfig.retryCount)')"
+  [[ "$retries" == "3" ]] || fail "${trigger} retries a refused attempt ${retries:-0} times, not 3. See D53."
+done
+echo "All four triggers retry a refused attempt 3 times (D53)."
+echo
 
 prove fpl-agent-check
 prove fpl-agent-watchdog

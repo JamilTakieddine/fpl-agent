@@ -2601,6 +2601,42 @@ pre-injury role. The 53 cases are too few to fit it now. Undated injuries (predi
 about twice the cases; a new reminder email (`fpl_agent/reminders.py`, GW16) asks for it, together with the
 5-gameweek refits (D49, D50).
 
+## D53. Every trigger retries a refused attempt 3 times
+
+*2026-11-18. Approved: "go ahead, commit then deploy".*
+
+**Context.** At 02:35 UTC on 18 Nov the watchdog's trigger got `503 UNAVAILABLE` from the Cloud Run API, so no
+run started, and D41's "a scheduled run could not start" alert emailed the user. It was Google's side: the only
+failed attempt of 1,463 in 60 days of scheduler logs, and the 03:05 watchdog and every run after it succeeded. But
+all four triggers had `retryCount` unset (0), so a refused attempt was simply lost. On the save (deadline − 60 min)
+or final (− 15 min) trigger, the same blip would lose that run. Each covers the other (a lost save leaves the final
+run, and the watchdog emails at the next :05/:35; a lost final leaves the save's team, minus late news), so a missed
+deadline needs two failures. Unlikely, but goal 1 is never missing one.
+
+**Decision.** `deploy.sh` sets the same retry policy on all four triggers: 3 retries, 10 s, 20 s, 40 s apart
+(`--min-backoff 10s --max-backoff 40s --max-doublings 2`), no time limit. With a time limit, Cloud Scheduler keeps
+retrying until *both* limits are reached, so the count alone is the cap. `verify.sh` now fails the deploy unless all
+four triggers report `retryCount` 3. The weekly re-point updates only `schedule` and `time_zone`
+(`CloudScheduler.set`), so it keeps the policy.
+
+**Timing.** A refused call (like the 503) returns in seconds, so all retries land within about 2 minutes. The worst
+case is an attempt that hangs to the 180 s attempt deadline every time: 4 × 180 s + 70 s ≈ 13 min. For the final run
+that would end around 10:58 on a 11:00 deadline, and the save run would already have set the team.
+
+**Risk: a duplicate run.** A retry follows a failed attempt; if one failed *after* Cloud Run had created the
+execution (a timeout, not a 503), two runs start. The run lock (D36) doesn't stop the second: it waits for the
+first, then runs in full (`fpl_agent/run.py`, the `LockHeld` loop). That is the same path as every week's final
+run after the save: it reads the team as saved and re-plans from there. Cost: a second email. A code reading,
+not tested with a real duplicate.
+
+**Alternatives rejected.**
+- **A backup trigger a few minutes after each run:** more moving parts, and it runs twice every week, not just after
+  a failure.
+- **Leave it to the watchdog:** it only reports, by design (D42), and a lost final run leaves no record it checks.
+
+**Consequences.** No cost unless an attempt fails. A refused attempt should still open D41's alert (it matches the
+failed attempt's error log; not yet seen with a retry), so an email may arrive although the retry succeeded; check the executions list before acting on it.
+
 ## Findings
 
 *Phase 0 first successful run, 2026-09-24*

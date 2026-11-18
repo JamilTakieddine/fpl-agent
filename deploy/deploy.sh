@@ -102,6 +102,11 @@ gcloud iam roles describe fplAgentJobRunner --project "$PROJECT" >/dev/null 2>&1
 gcloud run jobs add-iam-policy-binding "$JOB" --region "$REGION" --member="serviceAccount:${INVOKER}" --role="$RUN_ROLE" >/dev/null
 
 say "Scheduler jobs (placeholder times: the first run points them at the real deadlines)"
+# Retry a refused attempt (D53): a 503 from the Cloud Run API on 18 Nov 2026 lost one watchdog run,
+# and with no retries the same blip on the save or final trigger would lose that run. 3 retries,
+# 10s/20s/40s apart; no time limit (Cloud Scheduler keeps retrying until BOTH limits are reached).
+retry=(--max-retry-attempts 3 --min-backoff 10s --max-backoff 40s --max-doublings 2
+  --max-retry-duration 0s)
 for mode in check save final; do
   where=(--location "$REGION")
   target=(--uri "https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB}:run"
@@ -110,10 +115,10 @@ for mode in check save final; do
   if gcloud scheduler jobs describe "fpl-agent-${mode}" "${where[@]}" >/dev/null 2>&1; then
     # No --schedule on update: keep the time the job last set itself, so a redeploy can't reset
     # the real schedule to the placeholder. (Updates also name the header flag differently.)
-    gcloud scheduler jobs update http "fpl-agent-${mode}" "${where[@]}" "${target[@]}" \
+    gcloud scheduler jobs update http "fpl-agent-${mode}" "${where[@]}" "${target[@]}" "${retry[@]}" \
       --update-headers Content-Type=application/json >/dev/null
   else
-    gcloud scheduler jobs create http "fpl-agent-${mode}" "${where[@]}" "${target[@]}" \
+    gcloud scheduler jobs create http "fpl-agent-${mode}" "${where[@]}" "${target[@]}" "${retry[@]}" \
       --schedule "0 0 1 1 *" --time-zone Etc/UTC --headers Content-Type=application/json >/dev/null
   fi
 done
@@ -126,10 +131,10 @@ watchdog=(--location "$REGION" --schedule "5,35 * * * *" --time-zone Etc/UTC
   --http-method POST --oauth-service-account-email "$INVOKER"
   --message-body '{"overrides":{"containerOverrides":[{"args":["--mode","watchdog"]}]}}')
 if gcloud scheduler jobs describe fpl-agent-watchdog --location "$REGION" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http fpl-agent-watchdog "${watchdog[@]}" \
+  gcloud scheduler jobs update http fpl-agent-watchdog "${watchdog[@]}" "${retry[@]}" \
     --update-headers Content-Type=application/json >/dev/null
 else
-  gcloud scheduler jobs create http fpl-agent-watchdog "${watchdog[@]}" \
+  gcloud scheduler jobs create http fpl-agent-watchdog "${watchdog[@]}" "${retry[@]}" \
     --headers Content-Type=application/json >/dev/null
 fi
 
